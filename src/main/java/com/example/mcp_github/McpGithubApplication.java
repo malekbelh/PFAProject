@@ -19,6 +19,7 @@ import com.example.mcp_github.tools.pullrequest.GitHubPullRequestTools;
 import com.example.mcp_github.tools.release.GitHubReleaseTools;
 import com.example.mcp_github.tools.repository.GitHubRepositoryTools;
 import com.example.mcp_github.tools.social.GitHubSocialTools;
+import com.example.mcp_github.tools.structure.ProjectStructureTool; 
 import com.example.mcp_github.tools.user.GitHubUserTools;
 
 @SpringBootApplication
@@ -40,7 +41,8 @@ public class McpGithubApplication {
             GitHubReleaseTools releaseTools,
             GitHubActionsTools actionsTools,
             GitHubSocialTools socialTools,
-            ProjectContextTools projectContextTools
+            ProjectContextTools projectContextTools,
+            ProjectStructureTool projectStructureTool
     ) {
         return Arrays.stream(new ToolCallback[][]{
             ToolCallbacks.from(repositoryTools),
@@ -53,7 +55,8 @@ public class McpGithubApplication {
             ToolCallbacks.from(releaseTools),
             ToolCallbacks.from(actionsTools),
             ToolCallbacks.from(socialTools),
-            ToolCallbacks.from(projectContextTools)
+            ToolCallbacks.from(projectContextTools),
+            ToolCallbacks.from(projectStructureTool)
         })
                 .flatMap(Arrays::stream)
                 .toList();
