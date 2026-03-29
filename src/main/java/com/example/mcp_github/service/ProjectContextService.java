@@ -7,16 +7,19 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class ProjectContextService {
 
-    private static final Pattern HTTPS_PATTERN
-            = Pattern.compile("url\\s*=\\s*https://github\\.com/([^/]+)/([^\\s\\.]+)");
+    private static final Logger log = LoggerFactory.getLogger(ProjectContextService.class);
 
-    private static final Pattern SSH_PATTERN
-            = Pattern.compile("url\\s*=\\s*git@github\\.com:([^/]+)/([^\\s\\.]+)");
+    private static final Pattern HTTPS_PATTERN = Pattern
+            .compile("url\\s*=\\s*https://github\\.com/([^/]+)/([^\\s\\.]+)");
+
+    private static final Pattern SSH_PATTERN = Pattern.compile("url\\s*=\\s*git@github\\.com:([^/]+)/([^\\s\\.]+)");
 
     public Optional<GitProjectContext> detectFromCurrentDirectory() {
 
@@ -61,6 +64,7 @@ public class ProjectContextService {
             String content = Files.readString(gitConfig.toPath());
             return parseGitConfig(content, path);
         } catch (Exception e) {
+            log.warn("Failed to read git config from {}: {}", gitConfig.getAbsolutePath(), e.getMessage());
             return Optional.empty();
         }
     }
@@ -89,7 +93,8 @@ public class ProjectContextService {
             if (content.length() >= 7) {
                 return "detached@" + content.substring(0, 7);
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            log.debug("Failed to read git HEAD from project {}: {}", projectPath, e.getMessage());
         }
 
         return "main";
@@ -99,8 +104,7 @@ public class ProjectContextService {
             String owner,
             String repo,
             String branch,
-            String projectPath
-            ) {
+            String projectPath) {
 
     }
 }

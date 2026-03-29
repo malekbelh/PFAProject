@@ -22,10 +22,10 @@ import reactor.netty.resources.ConnectionProvider;
  * repository.
  * Used as the data layer for project structure analysis.
  */
+
 @Service
 public class GitHubFileTreeService {
 
-    // ── Extensions considered "source code" worth fetching ───────────────────
     private static final Set<String> SOURCE_EXTENSIONS = Set.of(
             ".java", ".kt", // JVM
             ".ts", ".tsx", ".js", ".jsx", // JS/TS
@@ -36,13 +36,10 @@ public class GitHubFileTreeService {
             ".cpp", ".cc", ".h", ".hpp", // C/C++
             ".rb" // Ruby
     );
-
-    // ── Entry-point file names (fetched with priority) ───────────────────────
     private static final Set<String> ENTRY_POINT_NAMES = Set.of(
             "main", "app", "application", "index",
             "server", "bootstrap", "program", "startup");
 
-    // ── Config/manifest files used for stack detection ───────────────────────
     private static final Set<String> CONFIG_FILES = Set.of(
             "pom.xml", "build.gradle", "build.gradle.kts",
             "package.json", "requirements.txt", "setup.py", "pyproject.toml",
@@ -54,7 +51,6 @@ public class GitHubFileTreeService {
             ".mvn/", "__pycache__/", ".venv/", "venv/", "vendor/",
             "coverage/", ".idea/", ".vscode/");
 
-    // ── Max source files to fetch (avoids token overload) ───────────────────
     private static final int MAX_SOURCE_FILES = 25;
 
     // ── Buffer size for large responses (10MB should be enough for most repos) ──
@@ -66,7 +62,6 @@ public class GitHubFileTreeService {
             @Value("${github.api.base-url}") String baseUrl,
             @Value("${github.api.token:}") String token) {
 
-        // Create a custom HttpClient with increased buffer size
         HttpClient httpClient = HttpClient.create(
                 ConnectionProvider.builder("github")
                         .maxConnections(100)
@@ -86,10 +81,6 @@ public class GitHubFileTreeService {
 
         this.webClient = builder.build();
     }
-
-    // =========================================================================
-    // PUBLIC API
-    // =========================================================================
 
     /**
      * Fetches the full recursive file tree of a repository.
@@ -131,24 +122,25 @@ public class GitHubFileTreeService {
      *
      * Returns a map of { filePath → decoded file content }.
      */
+
     public Map<String, String> fetchKeyFiles(String owner, String repo,
             String branch, List<TreeEntry> tree) {
 
         List<String> paths = tree.stream().map(TreeEntry::path).toList();
 
-        // ── Priority 1: config files ─────────────────────────────────────────
+        // ── Priority 1: config files
         List<String> toFetch = paths.stream()
                 .filter(this::isConfigFile)
                 .toList();
 
-        // ── Priority 2: entry-point source files ─────────────────────────────
+        // ── Priority 2: entry-point source files
         List<String> entryPoints = paths.stream()
                 .filter(p -> !isConfigFile(p))
                 .filter(this::isSourceFile)
                 .filter(this::isEntryPoint)
                 .toList();
 
-        // ── Priority 3: remaining source files (capped) ──────────────────────
+        // ── Priority 3: remaining source files
         List<String> remaining = paths.stream()
                 .filter(p -> !isConfigFile(p))
                 .filter(this::isSourceFile)
@@ -156,13 +148,11 @@ public class GitHubFileTreeService {
                 .limit(Math.max(0, MAX_SOURCE_FILES - toFetch.size() - entryPoints.size()))
                 .toList();
 
-        // Merge all selected paths
         List<String> selected = new java.util.ArrayList<>();
         selected.addAll(toFetch);
         selected.addAll(entryPoints);
         selected.addAll(remaining);
 
-        // Fetch each file and decode its base64 content
         Map<String, String> result = new java.util.LinkedHashMap<>();
         for (String path : selected) {
             try {
@@ -186,10 +176,6 @@ public class GitHubFileTreeService {
         Map<String, String> keyFiles = fetchKeyFiles(owner, repo, branch, tree);
         return new RepositorySnapshot(owner, repo, branch, tree, keyFiles);
     }
-
-    // =========================================================================
-    // PRIVATE HELPERS
-    // =========================================================================
 
     /**
      * Fetches and decodes the content of a single file.
@@ -253,10 +239,6 @@ public class GitHubFileTreeService {
                 : fileName;
         return ENTRY_POINT_NAMES.contains(nameOnly.toLowerCase());
     }
-
-    // =========================================================================
-    // RESPONSE MODELS (inner records — no need for separate model files)
-    // =========================================================================
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record GitTreeResponse(

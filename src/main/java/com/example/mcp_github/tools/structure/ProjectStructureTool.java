@@ -347,37 +347,40 @@ public class ProjectStructureTool {
         StringBuilder mermaid = new StringBuilder();
         mermaid.append("graph TD\n");
 
-        // Add layers based on pattern
         switch (analysis.pattern()) {
             case MVC:
-                mermaid.append("    subgraph Controllers\n");
-                findAndAddFilesToMermaid(mermaid, snapshot, List.of("controller"));
-                mermaid.append("    end\n\n");
-                mermaid.append("    subgraph Services\n");
-                findAndAddFilesToMermaid(mermaid, snapshot, List.of("service"));
-                mermaid.append("    end\n\n");
-                mermaid.append("    subgraph Repositories\n");
-                findAndAddFilesToMermaid(mermaid, snapshot, List.of("repository", "dao"));
-                mermaid.append("    end\n\n");
+                List<String> controllers = findFilesInFolders(snapshot, List.of("controller", "controllers"));
+                List<String> services = findFilesInFolders(snapshot, List.of("service", "services"));
+                List<String> repositories = findFilesInFolders(snapshot, List.of("repository", "repositories", "dao"));
+
+                appendSubgraph(mermaid, "Controllers", "CTRL", controllers);
+                appendSubgraph(mermaid, "Services", "SVC", services);
+                appendSubgraph(mermaid, "Repositories", "REPO", repositories);
+
                 mermaid.append("    Controllers --> Services\n");
                 mermaid.append("    Services --> Repositories\n");
                 break;
 
             case LAYERED:
-                mermaid.append("    subgraph Presentation\n");
-                findAndAddFilesToMermaid(mermaid, snapshot, List.of("controller", "api", "web"));
-                mermaid.append("    end\n\n");
-                mermaid.append("    subgraph Business\n");
-                findAndAddFilesToMermaid(mermaid, snapshot, List.of("service", "business"));
-                mermaid.append("    end\n\n");
-                mermaid.append("    subgraph Data\n");
-                findAndAddFilesToMermaid(mermaid, snapshot, List.of("repository", "model", "entity"));
-                mermaid.append("    end\n\n");
+                List<String> presentation = findFilesInFolders(snapshot,
+                        List.of("controller", "controllers", "api", "web"));
+                List<String> business = findFilesInFolders(snapshot, List.of("service", "services", "business"));
+                List<String> data = findFilesInFolders(snapshot,
+                        List.of("repository", "repositories", "model", "models", "entity"));
+
+                appendSubgraph(mermaid, "Presentation", "PRES", presentation);
+                appendSubgraph(mermaid, "Business", "BUS", business);
+                appendSubgraph(mermaid, "Data", "DAT", data);
+
                 mermaid.append("    Presentation --> Business\n");
                 mermaid.append("    Business --> Data\n");
                 break;
 
             default:
+                mermaid.append("    Client([\"Client\"])\n");
+                mermaid.append("    API[\"API Layer\"]\n");
+                mermaid.append("    Logic[\"Business Logic\"]\n");
+                mermaid.append("    Database[(\"Database\")]\n");
                 mermaid.append("    Client --> API\n");
                 mermaid.append("    API --> Logic\n");
                 mermaid.append("    Logic --> Database\n");
@@ -386,23 +389,45 @@ public class ProjectStructureTool {
         return mermaid.toString();
     }
 
-    private void findAndAddFilesToMermaid(StringBuilder mermaid, RepositorySnapshot snapshot, List<String> folders) {
-        Set<String> added = new HashSet<>();
+    // Returns up to 8 class names found in any of the given folder names
+    private List<String> findFilesInFolders(RepositorySnapshot snapshot, List<String> folderNames) {
+        List<String> found = new ArrayList<>();
         for (String path : snapshot.allPaths()) {
-            for (String folder : folders) {
-                if (path.contains("/" + folder + "/") && isSourceFile(path)) {
+            if (found.size() >= 8)
+                break;
+            if (!isSourceFile(path))
+                continue;
+            String lowerPath = path.toLowerCase();
+            for (String folder : folderNames) {
+                String lowerFolder = folder.toLowerCase();
+                // Match both top-level (controllers/Foo.js) and nested (/controllers/Foo.js)
+                if (lowerPath.startsWith(lowerFolder + "/") ||
+                        lowerPath.contains("/" + lowerFolder + "/")) {
                     String className = extractClassName(path);
-                    if (className != null && !added.contains(className)) {
-                        mermaid.append("        %s\n".formatted(className));
-                        added.add(className);
-                        break;
+                    if (className != null && !found.contains(className)) {
+                        found.add(className);
                     }
+                    break;
                 }
             }
         }
-        if (added.isEmpty()) {
-            mermaid.append("        [Components detected]\n");
+        return found;
+    }
+
+    // Appends a valid Mermaid subgraph with proper node syntax
+    private void appendSubgraph(StringBuilder mermaid, String label, String prefix, List<String> classNames) {
+        mermaid.append("    subgraph %s[\"%s\"]\n".formatted(escapeMermaidName(label), label));
+        if (classNames.isEmpty()) {
+            // Valid Mermaid node: id["Label"]
+            mermaid.append("        %s_empty[\"No components found\"]\n".formatted(prefix));
+        } else {
+            for (int i = 0; i < classNames.size(); i++) {
+                String className = classNames.get(i);
+                String nodeId = prefix + "_" + escapeMermaidName(className);
+                mermaid.append("        %s[\"%s\"]\n".formatted(nodeId, className));
+            }
         }
+        mermaid.append("    end\n\n");
     }
 
     private void generateDirectoryTree(RepositorySnapshot snapshot, StringBuilder doc) {

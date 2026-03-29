@@ -11,29 +11,11 @@ import org.springframework.stereotype.Service;
 
 import com.example.mcp_github.service.GitHubFileTreeService.RepositorySnapshot;
 
-/**
- * Rule-based project structure analyzer.
- *
- * Given a RepositorySnapshot (file tree + key file contents), it:
- * 1. Detects the tech stack (languages, frameworks, build tools)
- * 2. Detects the architecture pattern (MVC, Clean Architecture, etc.)
- * and assigns a confidence score (0–100)
- * 3. Extracts a package/module summary
- * 4. Produces improvement suggestions based on what's missing
- * 5. Signals whether LLM fallback is needed (confidence < threshold)
- */
 @Service
 public class ProjectStructureAnalyzer {
 
     private static final int CONFIDENCE_THRESHOLD = 70;
 
-    // =========================================================================
-    // PUBLIC API
-    // =========================================================================
-
-    /**
-     * Main entry point. Analyzes the snapshot and returns a full AnalysisResult.
-     */
     public AnalysisResult analyze(RepositorySnapshot snapshot) {
         List<String> paths = snapshot.allPaths();
         Map<String, String> files = snapshot.keyFiles();
@@ -59,38 +41,38 @@ public class ProjectStructureAnalyzer {
                 scores);
     }
 
-    // =========================================================================
-    // STACK DETECTION
-    // =========================================================================
-
     private Stack detectStack(List<String> paths, Map<String, String> files) {
         Set<String> languages = new HashSet<>();
         Set<String> frameworks = new HashSet<>();
         Set<String> buildTools = new HashSet<>();
 
         for (String path : paths) {
-            // ── Languages from extensions ────────────────────────────────────
-            if (path.endsWith(".java") || path.endsWith(".kt"))
-                languages.add(path.endsWith(".kt") ? "Kotlin" : "Java");
-            if (path.endsWith(".ts") || path.endsWith(".tsx"))
+            String lower = path.toLowerCase();
+
+            // Languages from extensions
+            if (lower.endsWith(".java"))
+                languages.add("Java");
+            if (lower.endsWith(".kt"))
+                languages.add("Kotlin");
+            if (lower.endsWith(".ts") || lower.endsWith(".tsx"))
                 languages.add("TypeScript");
-            if (path.endsWith(".js") || path.endsWith(".jsx"))
+            if (lower.endsWith(".js") || lower.endsWith(".jsx"))
                 languages.add("JavaScript");
-            if (path.endsWith(".py"))
+            if (lower.endsWith(".py"))
                 languages.add("Python");
-            if (path.endsWith(".go"))
+            if (lower.endsWith(".go"))
                 languages.add("Go");
-            if (path.endsWith(".rs"))
+            if (lower.endsWith(".rs"))
                 languages.add("Rust");
-            if (path.endsWith(".cs"))
+            if (lower.endsWith(".cs"))
                 languages.add("C#");
-            if (path.endsWith(".rb"))
+            if (lower.endsWith(".rb"))
                 languages.add("Ruby");
-            if (path.endsWith(".cpp") || path.endsWith(".cc"))
+            if (lower.endsWith(".cpp") || lower.endsWith(".cc"))
                 languages.add("C++");
 
-            // ── Build tools from config files ────────────────────────────────
-            String fileName = fileName(path);
+            // Build tools from config files
+            String fileName = fileName(lower);
             if (fileName.equals("pom.xml"))
                 buildTools.add("Maven");
             if (fileName.equals("build.gradle") || fileName.equals("build.gradle.kts"))
@@ -101,14 +83,16 @@ public class ProjectStructureAnalyzer {
                 buildTools.add("pip");
             if (fileName.equals("go.mod"))
                 buildTools.add("Go modules");
-            if (fileName.equals("Cargo.toml"))
+            if (fileName.equals("cargo.toml"))
                 buildTools.add("Cargo");
-            if (fileName.equals("Gemfile"))
+            if (fileName.equals("gemfile"))
                 buildTools.add("Bundler");
+            if (fileName.endsWith(".csproj") || fileName.endsWith(".sln"))
+                buildTools.add(".NET");
         }
 
-        // ── Frameworks from file contents ────────────────────────────────────
-        String pomContent = files.getOrDefault("pom.xml", "");
+        // Frameworks from file contents
+        String pomContent = files.getOrDefault("pom.xml", "").toLowerCase();
         if (pomContent.contains("spring-boot"))
             frameworks.add("Spring Boot");
         if (pomContent.contains("spring-security"))
@@ -120,7 +104,7 @@ public class ProjectStructureAnalyzer {
         if (pomContent.contains("micronaut"))
             frameworks.add("Micronaut");
 
-        String packageJson = files.getOrDefault("package.json", "");
+        String packageJson = files.getOrDefault("package.json", "").toLowerCase();
         if (packageJson.contains("\"react\""))
             frameworks.add("React");
         if (packageJson.contains("\"next\""))
@@ -131,12 +115,12 @@ public class ProjectStructureAnalyzer {
             frameworks.add("Angular");
         if (packageJson.contains("\"express\""))
             frameworks.add("Express");
-        if (packageJson.contains("\"nestjs\"") || packageJson.contains("\"@nestjs/core\""))
+        if (packageJson.contains("\"@nestjs/core\""))
             frameworks.add("NestJS");
         if (packageJson.contains("\"fastify\""))
             frameworks.add("Fastify");
 
-        String requirements = files.getOrDefault("requirements.txt", "");
+        String requirements = files.getOrDefault("requirements.txt", "").toLowerCase();
         if (requirements.contains("django"))
             frameworks.add("Django");
         if (requirements.contains("flask"))
@@ -144,15 +128,24 @@ public class ProjectStructureAnalyzer {
         if (requirements.contains("fastapi"))
             frameworks.add("FastAPI");
 
+        // Detect ASP.NET from .csproj contents
+        files.forEach((filePath, content) -> {
+            if (filePath.toLowerCase().endsWith(".csproj")) {
+                String c = content.toLowerCase();
+                if (c.contains("microsoft.aspnetcore"))
+                    frameworks.add("ASP.NET Core");
+                else if (c.contains("microsoft.aspnet"))
+                    frameworks.add("ASP.NET MVC");
+            }
+        });
+
         return new Stack(
                 languages.stream().sorted().toList(),
                 frameworks.stream().sorted().toList(),
                 buildTools.stream().sorted().toList());
     }
 
-    // =========================================================================
     // PATTERN SCORING
-    // =========================================================================
 
     private List<PatternScore> scorePatterns(List<String> paths) {
         List<PatternScore> scores = new ArrayList<>();
@@ -168,113 +161,110 @@ public class ProjectStructureAnalyzer {
         return scores;
     }
 
+    // MVC
     private PatternScore scoreMvc(List<String> paths) {
         List<String> signals = new ArrayList<>();
         int score = 0;
 
-        // Spring-style (singular)
-        if (hasFolder(paths, "controller") || hasFolder(paths, "controllers")) {
-            signals.add("controller(s)/ folder");
+        if (hasFolder(paths, "controllers") || hasFolder(paths, "controller")) {
+            signals.add("Controllers/ folder");
             score += 30;
         }
-        if (hasFolder(paths, "service") || hasFolder(paths, "services")) {
-            signals.add("service(s)/ folder");
+        if (hasFolder(paths, "services") || hasFolder(paths, "service")) {
+            signals.add("Services/ folder");
             score += 25;
         }
-        if (hasFolder(paths, "model") || hasFolder(paths, "models") ||
-                hasFolder(paths, "entity") || hasFolder(paths, "domain")) {
-            signals.add("model/entity/ folder");
+        if (hasFolder(paths, "models") || hasFolder(paths, "model")
+                || hasFolder(paths, "entities") || hasFolder(paths, "entity")
+                || hasFolder(paths, "domain")) {
+            signals.add("Models/Entities/ folder");
             score += 20;
         }
-        if (hasFolder(paths, "repository") || hasFolder(paths, "repositories") || hasFolder(paths, "dao")) {
-            signals.add("repository/dao/ folder");
+        if (hasFolder(paths, "repositories") || hasFolder(paths, "repository")
+                || hasFolder(paths, "dao")) {
+            signals.add("Repositories/ folder");
             score += 15;
         }
-        if (hasFolder(paths, "view") || hasFolder(paths, "views") ||
-                hasFolder(paths, "templates")) {
-            signals.add("view/templates/ folder");
-            score += 10;
-        }
-
-        // Express-style MVC signals
-        if (hasFolder(paths, "route") || hasFolder(paths, "routes")) {
-            signals.add("routes/ folder (Express MVC)");
-            score += 20;
-        }
-        if (hasFolder(paths, "middleware") || hasFolder(paths, "middlewares")) {
-            signals.add("middleware(s)/ folder");
+        if (hasFolder(paths, "views") || hasFolder(paths, "view")
+                || hasFolder(paths, "templates")) {
+            signals.add("Views/Templates/ folder");
             score += 10;
         }
 
         return new PatternScore(ArchitecturePattern.MVC, Math.min(score, 100), signals);
     }
 
-    // ── Clean Architecture (Uncle Bob) ───────────────────────────────────────
+    // Clean Architecture
     private PatternScore scoreCleanArchitecture(List<String> paths) {
         List<String> signals = new ArrayList<>();
         int score = 0;
 
         if (hasFolder(paths, "domain")) {
-            signals.add("domain/ layer");
+            signals.add("Domain/ layer");
             score += 30;
         }
-        if (hasFolder(paths, "application") || hasFolder(paths, "usecase") || hasFolder(paths, "usecases")) {
-            signals.add("application/usecase/ layer");
+        if (hasFolder(paths, "application") || hasFolder(paths, "usecase")
+                || hasFolder(paths, "usecases") || hasFolder(paths, "use-cases")) {
+            signals.add("Application/UseCase/ layer");
             score += 30;
         }
         if (hasFolder(paths, "infrastructure") || hasFolder(paths, "infra")) {
-            signals.add("infrastructure/ layer");
+            signals.add("Infrastructure/ layer");
             score += 25;
         }
-        if (hasFolder(paths, "presentation") || hasFolder(paths, "adapter") || hasFolder(paths, "adapters")) {
-            signals.add("presentation/adapter/ layer");
+        if (hasFolder(paths, "presentation") || hasFolder(paths, "adapter")
+                || hasFolder(paths, "adapters")) {
+            signals.add("Presentation/Adapter/ layer");
             score += 15;
         }
 
         return new PatternScore(ArchitecturePattern.CLEAN_ARCHITECTURE, Math.min(score, 100), signals);
     }
 
-    // ── Hexagonal (Ports & Adapters) ─────────────────────────────────────────
+    // ── Hexagonal
     private PatternScore scoreHexagonal(List<String> paths) {
         List<String> signals = new ArrayList<>();
         int score = 0;
 
         if (hasFolder(paths, "port") || hasFolder(paths, "ports")) {
-            signals.add("port/ folder");
+            signals.add("Ports/ folder");
             score += 35;
         }
         if (hasFolder(paths, "adapter") || hasFolder(paths, "adapters")) {
-            signals.add("adapter/ folder");
+            signals.add("Adapters/ folder");
             score += 35;
         }
         if (hasFolder(paths, "domain")) {
-            signals.add("domain/ folder");
+            signals.add("Domain/ folder");
             score += 20;
         }
         if (hasFolder(paths, "application")) {
-            signals.add("application/ folder");
+            signals.add("Application/ folder");
             score += 10;
         }
 
         return new PatternScore(ArchitecturePattern.HEXAGONAL, Math.min(score, 100), signals);
     }
 
-    // ── Layered (generic N-tier) ──────────────────────────────────────────────
+    // Layered
     private PatternScore scoreLayered(List<String> paths) {
         List<String> signals = new ArrayList<>();
         int score = 0;
         int layers = 0;
 
-        if (hasFolder(paths, "presentation") || hasFolder(paths, "web") || hasFolder(paths, "api")) {
-            signals.add("presentation/web/ layer");
+        if (hasFolder(paths, "presentation") || hasFolder(paths, "web")
+                || hasFolder(paths, "api")) {
+            signals.add("Presentation/Web/ layer");
             layers++;
         }
-        if (hasFolder(paths, "business") || hasFolder(paths, "logic") || hasFolder(paths, "service")) {
-            signals.add("business/service/ layer");
+        if (hasFolder(paths, "business") || hasFolder(paths, "logic")
+                || hasFolder(paths, "service") || hasFolder(paths, "services")) {
+            signals.add("Business/Service/ layer");
             layers++;
         }
-        if (hasFolder(paths, "data") || hasFolder(paths, "persistence") || hasFolder(paths, "repository")) {
-            signals.add("data/persistence/ layer");
+        if (hasFolder(paths, "data") || hasFolder(paths, "persistence")
+                || hasFolder(paths, "repository") || hasFolder(paths, "repositories")) {
+            signals.add("Data/Persistence/ layer");
             layers++;
         }
 
@@ -282,29 +272,30 @@ public class ProjectStructureAnalyzer {
         return new PatternScore(ArchitecturePattern.LAYERED, Math.min(score, 100), signals);
     }
 
-    // ── Feature-based / Modular ───────────────────────────────────────────────
+    // Feature-based
     private PatternScore scoreFeatureBased(List<String> paths) {
         List<String> signals = new ArrayList<>();
         int score = 0;
 
         if (hasFolder(paths, "feature") || hasFolder(paths, "features")) {
-            signals.add("feature/ folder");
+            signals.add("Features/ folder");
             score += 50;
         }
         if (hasFolder(paths, "module") || hasFolder(paths, "modules")) {
-            signals.add("module/ folder");
+            signals.add("Modules/ folder");
             score += 40;
         }
 
-        // Check if top-level folders themselves look like features
-        // (each containing controller + service = feature module)
         long featureLikeFolders = paths.stream()
                 .map(p -> p.contains("/") ? p.substring(0, p.indexOf('/')) : "")
                 .distinct()
                 .filter(f -> !f.isBlank())
                 .filter(f -> {
-                    boolean hasCtrl = paths.stream().anyMatch(p -> p.startsWith(f + "/") && p.contains("controller"));
-                    boolean hasSvc = paths.stream().anyMatch(p -> p.startsWith(f + "/") && p.contains("service"));
+                    String fLower = f.toLowerCase();
+                    boolean hasCtrl = paths.stream().anyMatch(
+                            p -> p.toLowerCase().startsWith(fLower + "/") && p.toLowerCase().contains("controller"));
+                    boolean hasSvc = paths.stream().anyMatch(
+                            p -> p.toLowerCase().startsWith(fLower + "/") && p.toLowerCase().contains("service"));
                     return hasCtrl && hasSvc;
                 })
                 .count();
@@ -317,32 +308,28 @@ public class ProjectStructureAnalyzer {
         return new PatternScore(ArchitecturePattern.FEATURE_BASED, Math.min(score, 100), signals);
     }
 
-    // ── MVVM ─────────────────────────────────────────────────────────────────
+    // MVVM
     private PatternScore scoreMvvm(List<String> paths) {
         List<String> signals = new ArrayList<>();
         int score = 0;
 
         if (hasFolder(paths, "viewmodel") || hasFolder(paths, "viewmodels")) {
-            signals.add("viewmodel/ folder");
-            score += 60;
+            signals.add("ViewModels/ folder");
+            score += 50;
         }
         if (hasFolder(paths, "view") || hasFolder(paths, "views")) {
-            signals.add("view/ folder");
+            signals.add("Views/ folder");
             score += 25;
         }
-        // Removed model/ — it's too generic and causes false positives with MVC
         if (hasFolder(paths, "model") || hasFolder(paths, "models")) {
-            // Only add if viewmodel is already present, otherwise it's noise
-            if (score > 0) {
-                signals.add("model/ folder");
-                score += 15;
-            }
+            signals.add("Models/ folder");
+            score += 25;
         }
 
         return new PatternScore(ArchitecturePattern.MVVM, Math.min(score, 100), signals);
     }
 
-    // ── Microservices ─────────────────────────────────────────────────────────
+    // Microservices
     private PatternScore scoreMicroservices(List<String> paths) {
         List<String> signals = new ArrayList<>();
         int score = 0;
@@ -351,22 +338,24 @@ public class ProjectStructureAnalyzer {
             signals.add("docker-compose.yml");
             score += 25;
         }
-        if (hasFile(paths, "Dockerfile")) {
+        if (hasFile(paths, "dockerfile")) {
             signals.add("Dockerfile");
             score += 20;
         }
         if (hasFolder(paths, "gateway") || hasFolder(paths, "api-gateway")) {
-            signals.add("gateway/ service");
+            signals.add("Gateway/ service");
             score += 25;
         }
         if (hasFolder(paths, "discovery") || hasFolder(paths, "registry")) {
-            signals.add("service discovery");
+            signals.add("Service discovery");
             score += 15;
         }
 
-        // Multiple pom.xml / package.json = multi-module
         long buildFiles = paths.stream()
-                .filter(p -> fileName(p).equals("pom.xml") || fileName(p).equals("package.json"))
+                .filter(p -> {
+                    String f = fileName(p.toLowerCase());
+                    return f.equals("pom.xml") || f.equals("package.json");
+                })
                 .count();
         if (buildFiles >= 3) {
             signals.add(buildFiles + " build files (multi-module)");
@@ -376,14 +365,8 @@ public class ProjectStructureAnalyzer {
         return new PatternScore(ArchitecturePattern.MICROSERVICES, Math.min(score, 100), signals);
     }
 
-    // =========================================================================
     // PACKAGE SUMMARY
-    // =========================================================================
 
-    /**
-     * Extracts the top-level folder names (= packages/modules) from the file tree.
-     * These become the nodes in the diagram.
-     */
     private List<String> extractPackageSummary(List<String> paths) {
         Map<String, Integer> folderCounts = new HashMap<>();
 
@@ -400,9 +383,7 @@ public class ProjectStructureAnalyzer {
                 .toList();
     }
 
-    // =========================================================================
     // SUGGESTIONS
-    // =========================================================================
 
     private List<String> generateSuggestions(ArchitecturePattern pattern,
             List<String> paths, Stack stack) {
@@ -411,21 +392,21 @@ public class ProjectStructureAnalyzer {
         switch (pattern) {
             case MVC -> {
                 if (!hasFolder(paths, "exception") && !hasFolder(paths, "exceptions")
-                        && !hasFile(paths, "GlobalExceptionHandler.java"))
+                        && !hasFile(paths, "globalexceptionhandler.java"))
                     suggestions.add(
                             "No global exception handler found — consider adding one to centralize error handling.");
                 if (!hasFolder(paths, "dto") && !hasFolder(paths, "dtos"))
                     suggestions.add(
                             "No DTO layer detected — controllers may be exposing entities directly, which is a security risk.");
                 if (!hasFolder(paths, "config") && !hasFolder(paths, "configuration"))
-                    suggestions.add(
-                            "No config/ package found — consider grouping Spring @Configuration classes together.");
+                    suggestions.add("No config/ package found — consider grouping configuration classes together.");
                 if (!hasFolder(paths, "test") && !hasFolder(paths, "tests"))
                     suggestions.add(
                             "No test folder detected — consider adding unit tests for service and controller layers.");
             }
             case CLEAN_ARCHITECTURE -> {
-                if (!hasFolder(paths, "usecase") && !hasFolder(paths, "usecases") && !hasFolder(paths, "application"))
+                if (!hasFolder(paths, "usecase") && !hasFolder(paths, "usecases")
+                        && !hasFolder(paths, "application"))
                     suggestions.add(
                             "No use-case layer found — Clean Architecture requires an explicit application/use-case layer.");
                 if (!hasFolder(paths, "port") && !hasFolder(paths, "ports"))
@@ -440,8 +421,6 @@ public class ProjectStructureAnalyzer {
                     suggestions.add("No port interfaces found — ports are essential to Hexagonal Architecture.");
             }
             case FEATURE_BASED -> {
-                suggestions.add(
-                        "Ensure shared utilities are in a common/ or shared/ module to avoid duplication across features.");
                 if (!hasFolder(paths, "common") && !hasFolder(paths, "shared"))
                     suggestions.add("No common/ or shared/ folder found — cross-feature code may be duplicated.");
             }
@@ -453,42 +432,49 @@ public class ProjectStructureAnalyzer {
             }
         }
 
-        // General suggestions regardless of pattern
-        if (stack.frameworks().contains("Spring Boot") && !hasFile(paths, "application.yml")
+        // Universal suggestions
+        if (stack.frameworks().contains("Spring Boot")
+                && !hasFile(paths, "application.yml")
                 && !hasFile(paths, "application.properties"))
             suggestions.add("No application.yml/properties found at root — make sure environment config is present.");
 
-        if (!hasFile(paths, "README.md") && !hasFile(paths, "readme.md"))
+        if (!hasFile(paths, "readme.md"))
             suggestions.add("No README.md found — consider adding one to document the project structure and setup.");
 
         return suggestions;
     }
 
-    // =========================================================================
     // HELPERS
-    // =========================================================================
 
-    /** Returns true if any path contains a folder with this name as a segment. */
+    /**
+     * Case-insensitive folder detection.
+     * Matches any path segment equal to folderName, regardless of casing.
+     */
     private boolean hasFolder(List<String> paths, String folderName) {
-        return paths.stream().anyMatch(p -> p.contains("/" + folderName + "/") ||
-                p.startsWith(folderName + "/") ||
-                p.contains("/" + folderName.toLowerCase() + "/") ||
-                p.startsWith(folderName.toLowerCase() + "/"));
+        String lower = folderName.toLowerCase();
+        return paths.stream().anyMatch(p -> {
+            String lp = p.toLowerCase();
+            return lp.contains("/" + lower + "/")
+                    || lp.startsWith(lower + "/");
+        });
     }
 
-    /** Returns true if any path ends with this exact file name. */
+    /**
+     * Case-insensitive file detection.
+     */
     private boolean hasFile(List<String> paths, String fileName) {
-        return paths.stream().anyMatch(p -> p.equals(fileName) || p.endsWith("/" + fileName));
+        String lower = fileName.toLowerCase();
+        return paths.stream().anyMatch(p -> {
+            String lp = p.toLowerCase();
+            return lp.equals(lower) || lp.endsWith("/" + lower);
+        });
     }
 
-    /** Extracts the file name from a path. */
     private String fileName(String path) {
         return path.contains("/") ? path.substring(path.lastIndexOf('/') + 1) : path;
     }
 
-    // =========================================================================
     // RESULT MODELS
-    // =========================================================================
 
     public enum ArchitecturePattern {
         MVC,

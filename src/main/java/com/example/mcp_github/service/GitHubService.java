@@ -1,5 +1,7 @@
 package com.example.mcp_github.service;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -76,11 +78,6 @@ public class GitHubService {
             throw new IllegalStateException("GitHub token required to create repositories");
         }
 
-        record CreateRepoRequest(String name, String description, @JsonProperty("private")
-                boolean isPrivate) {
-
-        }
-
         var requestBody = new CreateRepoRequest(name, description, isPrivate);
 
         return webClient.post()
@@ -103,14 +100,10 @@ public class GitHubService {
                 .block();
     }
 
-    public GitHubRepository updateRepository(String username, String repo, String name, String description, boolean isPrivate) {
+    public GitHubRepository updateRepository(String username, String repo, String name, String description,
+            boolean isPrivate) {
         if (!hasToken) {
             throw new IllegalStateException("GitHub token required to update repositories");
-        }
-
-        record UpdateRepoRequest(String name, String description, @JsonProperty("private")
-                boolean isPrivate) {
-
         }
 
         var requestBody = new UpdateRepoRequest(name, description, isPrivate);
@@ -175,10 +168,6 @@ public class GitHubService {
             throw new IllegalStateException("GitHub token required to create issues");
         }
 
-        record IssueRequest(String title, String body) {
-
-        }
-
         var requestBody = new IssueRequest(title, body);
 
         return webClient.post()
@@ -202,13 +191,10 @@ public class GitHubService {
                 .block();
     }
 
-    public GitHubPullRequest createPullRequest(String username, String repo, String title, String head, String base, String body) {
+    public GitHubPullRequest createPullRequest(String username, String repo, String title, String head, String base,
+            String body) {
         if (!hasToken) {
             throw new IllegalStateException("GitHub token required to create pull requests");
-        }
-
-        record CreatePRRequest(String title, String head, String base, String body) {
-
         }
 
         var requestBody = new CreatePRRequest(title, head, base, body);
@@ -248,15 +234,7 @@ public class GitHubService {
         }
 
         // Create the new branch reference
-        record CreateRefRequest(String ref, String sha) {
-
-        }
-
         var requestBody = new CreateRefRequest("refs/heads/" + branchName, sourceBranch.commit().sha());
-
-        record RefResponse(String ref, String url, GitHubBranch.GitHubCommitRef object) {
-
-        }
 
         webClient.post()
                 .uri("/repos/{username}/{repo}/git/refs", username, repo)
@@ -368,20 +346,8 @@ public class GitHubService {
             // File doesn't exist, will be created
         }
 
-        record PushFileRequest(
-                String message,
-                String content,
-                String sha,
-                String branch) {
-
-        }
-
-        record PushFileResponse(GitHubContent content, Object commit) {
-
-        }
-
         // Encode content to base64
-        String encodedContent = java.util.Base64.getEncoder().encodeToString(content.getBytes());
+        String encodedContent = Base64.getEncoder().encodeToString(content.getBytes(StandardCharsets.UTF_8));
 
         var requestBody = new PushFileRequest(message, encodedContent, fileSha, branch);
 
@@ -393,7 +359,7 @@ public class GitHubService {
                 .block();
 
         if (response != null && response.commit() != null) {
-            return ((java.util.Map<String, Object>) response.commit()).get("sha").toString();
+            return response.commit().sha();
         }
         return null;
     }
@@ -407,10 +373,6 @@ public class GitHubService {
         GitHubContent file = getFileContent(username, repo, path);
         if (file == null) {
             throw new IllegalStateException("File not found: " + path);
-        }
-
-        record DeleteFileRequest(String message, String sha, String branch) {
-
         }
 
         var requestBody = new DeleteFileRequest(message, file.sha(), branch);
@@ -514,15 +476,6 @@ public class GitHubService {
             throw new IllegalStateException("GitHub token required to merge pull requests");
         }
 
-        record MergeRequest(
-                @JsonProperty("commit_message")
-                String commitMessage,
-                @JsonProperty("merge_method")
-                String mergeMethod
-                ) {
-
-        }
-
         webClient.put()
                 .uri("/repos/{username}/{repo}/pulls/{prNumber}/merge", username, repo, prNumber)
                 .bodyValue(new MergeRequest(commitMessage, "merge"))
@@ -530,4 +483,41 @@ public class GitHubService {
                 .bodyToMono(Void.class)
                 .block();
     }
+
+    // ==================== DTO RECORDS ====================
+
+    private record CreateRepoRequest(String name, String description, @JsonProperty("private") boolean isPrivate) {
+    }
+
+    private record UpdateRepoRequest(String name, String description, @JsonProperty("private") boolean isPrivate) {
+    }
+
+    private record IssueRequest(String title, String body) {
+    }
+
+    private record CreatePRRequest(String title, String head, String base, String body) {
+    }
+
+    private record CreateRefRequest(String ref, String sha) {
+    }
+
+    private record RefResponse(String ref, String url, GitHubBranch.GitHubCommitRef object) {
+    }
+
+    private record PushFileRequest(String message, String content, String sha, String branch) {
+    }
+
+    private record PushFileResponse(GitHubContent content, PushFileCommit commit) {
+    }
+
+    private record PushFileCommit(String sha) {
+    }
+
+    private record DeleteFileRequest(String message, String sha, String branch) {
+    }
+
+    private record MergeRequest(@JsonProperty("commit_message") String commitMessage,
+            @JsonProperty("merge_method") String mergeMethod) {
+    }
+
 }

@@ -36,7 +36,7 @@ public class ProjectAutoDetector implements ApplicationRunner {
         }
 
         if (workspace == null || workspace.isBlank()) {
-            log.warn("⚠️ Aucun chemin projet configuré (PROJECT_PATH ou VSCODE_WORKSPACE)");
+            log.warn(" Aucun chemin projet configuré (PROJECT_PATH ou VSCODE_WORKSPACE)");
             return;
         }
 
@@ -46,12 +46,12 @@ public class ProjectAutoDetector implements ApplicationRunner {
 
         if (savedOwner != null && savedPath != null
                 && savedPath.equalsIgnoreCase(workspace)) {
-            log.warn("✅ Projet inchangé en mémoire : {} — path: {}", savedOwner, savedPath);
+            log.warn(" Projet inchangé en mémoire : {} — path: {}", savedOwner, savedPath);
             return;
         }
 
         // ── 3. Projet différent → on rédetecte ───────────────────────────────
-        log.warn("🔄 Workspace changé ({} → {}), rédetection...", savedPath, workspace);
+        log.warn(" Workspace changé ({} → {}), rédetection...", savedPath, workspace);
 
         // ── 4. Essai via ProjectContextService (parse .git/config) ───────────
         var ctx = projectContextService.detectFromDirectory(workspace);
@@ -61,26 +61,26 @@ public class ProjectAutoDetector implements ApplicationRunner {
         }
 
         // ── 5. Fallback — commandes git directes ─────────────────────────────
-        log.warn("⚠️ Parse .git/config échoué, tentative via commandes git...");
+        log.warn(" Parse .git/config échoué, tentative via commandes git...");
         try {
             String remoteUrl = runGit(workspace, "git", "remote", "get-url", "origin");
             String branch = runGit(workspace, "git", "rev-parse", "--abbrev-ref", "HEAD");
 
             if (remoteUrl == null || remoteUrl.isBlank()) {
-                log.warn("❌ Aucun remote 'origin' trouvé dans {}", workspace);
+                log.warn("Aucun remote 'origin' trouvé dans {}", workspace);
                 return;
             }
 
             String[] parts = parseGitUrl(remoteUrl);
             if (parts == null) {
-                log.warn("❌ URL remote non reconnue : {}", remoteUrl);
+                log.warn(" URL remote non reconnue : {}", remoteUrl);
                 return;
             }
 
             save(parts[0], parts[1], branch != null ? branch : "main", workspace);
 
         } catch (Exception e) {
-            log.warn("❌ Erreur détection git : {}", e.getMessage());
+            log.warn(" Erreur détection git : {}", e.getMessage());
         }
     }
 
@@ -90,7 +90,7 @@ public class ProjectAutoDetector implements ApplicationRunner {
         memoryService.remember("current_repo", repo);
         memoryService.remember("current_branch", branch);
         memoryService.remember("current_path", path);
-        log.warn("✅ Projet sauvegardé : {}/{} [{}]", owner, repo, branch);
+        log.warn(" Projet sauvegardé : {}/{} [{}]", owner, repo, branch);
     }
 
     private String runGit(String workdir, String... command) {
@@ -101,9 +101,13 @@ public class ProjectAutoDetector implements ApplicationRunner {
             Process process = pb.start();
 
             try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()))) {
+                    new InputStreamReader(process.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
                 String line = reader.readLine();
-                process.waitFor();
+                int exitCode = process.waitFor();
+                if (exitCode != 0) {
+                    log.debug("Git command exited with {}: {}", exitCode, String.join(" ", command));
+                    return null;
+                }
                 return line != null ? line.trim() : null;
             }
         } catch (Exception e) {
@@ -120,7 +124,7 @@ public class ProjectAutoDetector implements ApplicationRunner {
             String path = url.substring(url.indexOf("github.com/") + "github.com/".length());
             String[] parts = path.split("/");
             if (parts.length >= 2) {
-                return new String[]{parts[0], parts[1]};
+                return new String[] { parts[0], parts[1] };
             }
         }
 
@@ -129,7 +133,7 @@ public class ProjectAutoDetector implements ApplicationRunner {
             String path = url.substring(url.indexOf("github.com:") + "github.com:".length());
             String[] parts = path.split("/");
             if (parts.length >= 2) {
-                return new String[]{parts[0], parts[1]};
+                return new String[] { parts[0], parts[1] };
             }
         }
 

@@ -1,79 +1,64 @@
 package com.example.mcp_github.service;
 
-import java.io.File;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.mcp_github.model.MemoryEntity;
+import com.example.mcp_github.repository.MemoryRepository;
 
 /**
- * Service for persistent memory management using a local JSON file.
+ * Service for persistent memory management using MongoDB.
  */
 @Service
 public class MemoryService {
 
-    @Value("${memory.file.path:${user.home}/.mcp-github/memory.json}")
-    private String memoryFilePath;
+    private final MemoryRepository memoryRepository;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    public MemoryService(MemoryRepository memoryRepository) {
+        this.memoryRepository = memoryRepository;
+    }
 
     public void remember(String key, String value) {
         try {
-            File file = new File(memoryFilePath);
-            file.getParentFile().mkdirs(); // ← crée le dossier si absent
-            Map<String, String> memory = loadMemory();
-            memory.put(key, value);
-            objectMapper.writeValue(file, memory);
+            memoryRepository.save(new MemoryEntity(key, value));
         } catch (Exception e) {
-            throw new RuntimeException("Error saving memory: " + e.getMessage());
+            throw new RuntimeException("Error saving memory to MongoDB: " + e.getMessage());
         }
     }
 
     public String recall(String key) {
         try {
-            return loadMemory().getOrDefault(key, null);
+            return memoryRepository.findById(key)
+                    .map(MemoryEntity::getValue)
+                    .orElse(null);
         } catch (Exception e) {
-            throw new RuntimeException("Error reading memory: " + e.getMessage());
+            throw new RuntimeException("Error reading memory from MongoDB: " + e.getMessage());
         }
     }
 
     public Map<String, String> recallAll() {
         try {
-            return loadMemory();
+            return memoryRepository.findAll().stream()
+                    .collect(Collectors.toMap(MemoryEntity::getKey, MemoryEntity::getValue));
         } catch (Exception e) {
-            throw new RuntimeException("Error reading memory: " + e.getMessage());
+            throw new RuntimeException("Error reading memory from MongoDB: " + e.getMessage());
         }
     }
 
     public void forget(String key) {
         try {
-            Map<String, String> memory = loadMemory();
-            memory.remove(key);
-            objectMapper.writeValue(new File(memoryFilePath), memory); // ✅ corrigé
+            memoryRepository.deleteById(key);
         } catch (Exception e) {
-            throw new RuntimeException("Error deleting memory: " + e.getMessage());
+            throw new RuntimeException("Error deleting memory from MongoDB: " + e.getMessage());
         }
     }
 
     public void forgetAll() {
         try {
-            File file = new File(memoryFilePath);
-            file.getParentFile().mkdirs();
-            objectMapper.writeValue(file, new HashMap<>()); // ✅ corrigé
+            memoryRepository.deleteAll();
         } catch (Exception e) {
-            throw new RuntimeException("Error clearing memory: " + e.getMessage());
+            throw new RuntimeException("Error clearing memory in MongoDB: " + e.getMessage());
         }
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, String> loadMemory() throws Exception {
-        File file = new File(memoryFilePath);
-        if (!file.exists() || file.length() == 0) { // ← ajouter file.length() == 0
-            return new HashMap<>();
-        }
-        return objectMapper.readValue(file, Map.class);
     }
 }
