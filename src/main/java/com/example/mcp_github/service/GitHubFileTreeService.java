@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Service;
@@ -17,24 +19,20 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import reactor.netty.http.client.HttpClient;
 import reactor.netty.resources.ConnectionProvider;
 
-/**
- * Service for fetching the file tree and key file contents from a GitHub
- * repository.
- * Used as the data layer for project structure analysis.
- */
-
 @Service
 public class GitHubFileTreeService {
 
+    private static final Logger log = LoggerFactory.getLogger(GitHubFileTreeService.class);
+
     private static final Set<String> SOURCE_EXTENSIONS = Set.of(
-            ".java", ".kt", // JVM
-            ".ts", ".tsx", ".js", ".jsx", // JS/TS
-            ".py", // Python
-            ".go", // Go
-            ".rs", // Rust
-            ".cs", // C#
-            ".cpp", ".cc", ".h", ".hpp", // C/C++
-            ".rb" // Ruby
+            ".java", ".kt",
+            ".ts", ".tsx", ".js", ".jsx",
+            ".py",
+            ".go",
+            ".rs",
+            ".cs",
+            ".cpp", ".cc", ".h", ".hpp",
+            ".rb"
     );
     private static final Set<String> ENTRY_POINT_NAMES = Set.of(
             "main", "app", "application", "index",
@@ -45,16 +43,13 @@ public class GitHubFileTreeService {
             "package.json", "requirements.txt", "setup.py", "pyproject.toml",
             "go.mod", "Cargo.toml", "*.csproj", "Gemfile");
 
-    // ── Paths to always skip ─────────────────────────────────────────────────
     private static final Set<String> IGNORED_PREFIXES = Set.of(
             "node_modules/", ".git/", "dist/", "build/", "target/",
             ".mvn/", "__pycache__/", ".venv/", "venv/", "vendor/",
             "coverage/", ".idea/", ".vscode/");
 
     private static final int MAX_SOURCE_FILES = 25;
-
-    // ── Buffer size for large responses (10MB should be enough for most repos) ──
-    private static final int MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB
+    private static final int MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10 MB
 
     private final WebClient webClient;
 
@@ -82,10 +77,6 @@ public class GitHubFileTreeService {
         this.webClient = builder.build();
     }
 
-    /**
-     * Fetches the full recursive file tree of a repository.
-     * Returns a flat list of every file path (blobs only, no directories).
-     */
     public List<TreeEntry> getFileTree(String owner, String repo, String branch) {
         String resolvedBranch = (branch != null && !branch.isBlank()) ? branch : "main";
 
@@ -98,49 +89,46 @@ public class GitHubFileTreeService {
                     .block();
 
             if (response == null || response.tree() == null) {
+                log.warn("Arborescence vide reçue pour {}/{} [{}]", owner, repo, resolvedBranch);
                 return List.of();
             }
 
-            // Keep only files (blobs), skip directory entries and ignored paths
+            if (response.truncated()) {
+                log.warn("Arborescence tronquée pour {}/{} [{}] — le dépôt dépasse la limite GitHub",
+                        owner, repo, resolvedBranch);
+            }
+
             return response.tree().stream()
                     .filter(e -> "blob".equals(e.type()))
                     .filter(e -> !isIgnored(e.path()))
                     .toList();
 
+        } catch (WebClientResponseException e) {
+            log.error("Erreur HTTP {} lors de la récupération de l'arborescence de {}/{} [{}] : {}",
+                    e.getStatusCode(), owner, repo, resolvedBranch, e.getMessage());
+            return List.of();
         } catch (Exception e) {
-            // Log the error and return empty list
-            System.err.println("Error fetching file tree: " + e.getMessage());
+            log.error("Erreur inattendue lors de la récupération de l'arborescence de {}/{} [{}] : {}",
+                    owner, repo, resolvedBranch, e.getMessage());
             return List.of();
         }
     }
-
-    /**
-     * From the file tree, selects and fetches the content of:
-     * 1. All config/manifest files (pom.xml, package.json, etc.)
-     * 2. Entry-point source files (main, app, index, etc.)
-     * 3. A sample of remaining source files (up to MAX_SOURCE_FILES total)
-     *
-     * Returns a map of { filePath → decoded file content }.
-     */
 
     public Map<String, String> fetchKeyFiles(String owner, String repo,
             String branch, List<TreeEntry> tree) {
 
         List<String> paths = tree.stream().map(TreeEntry::path).toList();
 
-        // ── Priority 1: config files
         List<String> toFetch = paths.stream()
                 .filter(this::isConfigFile)
                 .toList();
 
-        // ── Priority 2: entry-point source files
         List<String> entryPoints = paths.stream()
                 .filter(p -> !isConfigFile(p))
                 .filter(this::isSourceFile)
                 .filter(this::isEntryPoint)
                 .toList();
 
-        // ── Priority 3: remaining source files
         List<String> remaining = paths.stream()
                 .filter(p -> !isConfigFile(p))
                 .filter(this::isSourceFile)
@@ -161,26 +149,19 @@ public class GitHubFileTreeService {
                     result.put(path, content);
                 }
             } catch (Exception e) {
-                // Skip files that fail (binary, too large, etc.)
+                log.debug("Fichier ignoré (binaire ou trop grand) : {}", path);
             }
         }
 
         return result;
     }
 
-    /**
-     * Convenience method: fetches tree + key files in one call.
-     */
     public RepositorySnapshot snapshot(String owner, String repo, String branch) {
         List<TreeEntry> tree = getFileTree(owner, repo, branch);
         Map<String, String> keyFiles = fetchKeyFiles(owner, repo, branch, tree);
         return new RepositorySnapshot(owner, repo, branch, tree, keyFiles);
     }
 
-    /**
-     * Fetches and decodes the content of a single file.
-     * GitHub returns file content as base64 with newlines — we strip and decode.
-     */
     private String fetchFileContent(String owner, String repo, String branch, String path) {
         try {
             FileContentResponse response = webClient.get()
@@ -194,30 +175,31 @@ public class GitHubFileTreeService {
                 return null;
             }
 
-            // GitHub encodes content as base64 with \n line breaks
             String cleaned = response.content().replace("\n", "").trim();
             return new String(Base64.getDecoder().decode(cleaned));
 
         } catch (WebClientResponseException.NotFound e) {
-            return null; // File doesn't exist on this branch
+            return null;
         } catch (Exception e) {
-            // Handle other errors (timeout, etc.)
+            log.debug("Impossible de récupérer le contenu de {} : {}", path, e.getMessage());
             return null;
         }
     }
 
     private boolean isIgnored(String path) {
         for (String prefix : IGNORED_PREFIXES) {
-            if (path.startsWith(prefix))
+            if (path.startsWith(prefix)) {
                 return true;
+            }
         }
         return false;
     }
 
     private boolean isSourceFile(String path) {
         for (String ext : SOURCE_EXTENSIONS) {
-            if (path.endsWith(ext))
+            if (path.endsWith(ext)) {
                 return true;
+            }
         }
         return false;
     }
@@ -233,7 +215,6 @@ public class GitHubFileTreeService {
         String fileName = path.contains("/")
                 ? path.substring(path.lastIndexOf('/') + 1)
                 : path;
-        // Strip extension and check against entry point names
         String nameOnly = fileName.contains(".")
                 ? fileName.substring(0, fileName.lastIndexOf('.'))
                 : fileName;
@@ -245,37 +226,35 @@ public class GitHubFileTreeService {
             String sha,
             List<TreeEntry> tree,
             boolean truncated) {
+
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record TreeEntry(
             String path,
-            String type, // "blob" = file, "tree" = directory
+            String type,
             String sha,
             @JsonProperty("size") Long size) {
+
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record FileContentResponse(
             String name,
             String path,
-            String content, // base64 encoded
+            String content,
             String encoding,
             String sha) {
+
     }
 
-    /**
-     * Snapshot of a repository at a given point in time:
-     * the full file tree + the content of selected key files.
-     */
     public record RepositorySnapshot(
             String owner,
             String repo,
             String branch,
-            List<TreeEntry> tree, // all file paths
-            Map<String, String> keyFiles // path → decoded content
-    ) {
-        /** All file paths as a plain list of strings — useful for pattern matching. */
+            List<TreeEntry> tree,
+            Map<String, String> keyFiles) {
+
         public List<String> allPaths() {
             return tree.stream().map(TreeEntry::path).toList();
         }

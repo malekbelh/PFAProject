@@ -1,6 +1,8 @@
 package com.example.mcp_github.tools.project;
 
-import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.Objects;
 import java.util.Optional;
 
 import org.springframework.ai.tool.annotation.Tool;
@@ -25,134 +27,164 @@ public class ProjectContextTools {
 
     @Tool(name = "initializeProject", description = """
             MANDATORY: Call this tool automatically at the very beginning of EVERY conversation.
-            Auto-detects the active GitHub project from the current Antigravity workspace.
-            Re-detects automatically if the workspace has changed since last session.
-            Falls back to persistent memory if no project is detected.
+            You should pass the Absolute Path to the current workspace you are in, as known from your <user_information> context.
+            Always re-reads .git/HEAD and .git/config from the provided workspace — never returns
+            stale data. If the user has switched projects or branches, the change is picked up
+            immediately.
             """)
-    public String initializeProject() {
+    public String initializeProject(
+            @ToolParam(description = "The absolute path of the user's current project workspace.") String workspacePath) {
 
-        // ── 1. Workspace actuel ───────────────────────────────────────────────
-        String currentWorkspace = System.getenv("PROJECT_PATH");
-        if (currentWorkspace == null || currentWorkspace.isBlank()) {
-            currentWorkspace = System.getenv("VSCODE_WORKSPACE");
+        Optional<GitProjectContext> ctx;
+        if (workspacePath != null && !workspacePath.isBlank()) {
+            ctx = projectContextService.detectFromDirectory(workspacePath);
+        } else {
+            ctx = projectContextService.detectFromCurrentDirectory();
         }
 
-        // ── 2. Ce qui est en mémoire ──────────────────────────────────────────
-        String savedPath = memoryService.recall("current_path");
+        if (ctx.isPresent()) {
+            GitProjectContext project = ctx.get();
+
+            if (!Files.isDirectory(Paths.get(project.projectPath()))) {
+                return """
+                        ⚠️ Detected project path is no longer accessible: %s
+                        Solutions:
+                        • Make sure the project folder is still open
+                        • Or call: setCurrentProject(owner, repo, branch)
+                        """.formatted(project.projectPath());
+            }
+
+            String savedOwner = memoryService.recall("current_owner");
+            String savedRepo = memoryService.recall("current_repo");
+            String savedBranch = memoryService.recall("current_branch");
+
+            // ✅ FIX NPE — Objects.equals() gère null des deux côtés
+            // ✅ FIX PATH — inclure current_path dans la détection de changement
+            String savedPath = memoryService.recall("current_path");
+            boolean changed = !Objects.equals(project.owner(), savedOwner)
+                    || !Objects.equals(project.repo(), savedRepo)
+                    || !Objects.equals(project.branch(), savedBranch)
+                    || !Objects.equals(project.projectPath(), savedPath);
+
+            memoryService.remember("current_owner", project.owner());
+            memoryService.remember("current_repo", project.repo());
+            memoryService.remember("current_branch", project.branch());
+            memoryService.remember("current_path", project.projectPath());
+
+            if (changed) {
+                String prev = savedOwner != null
+                        ? "%s/%s [%s]".formatted(savedOwner, savedRepo, savedBranch)
+                        : "none";
+                return """
+                        🔄 Project changed — updated automatically!
+
+                        Previous : %s
+                        Owner    : %s
+                        Repo     : %s
+                        Branch   : %s
+                        Path     : %s
+
+                        🔗 https://github.com/%s/%s
+
+                        ✅ Memory and file-save path updated to the new project.
+                        """.formatted(prev,
+                        project.owner(), project.repo(),
+                        project.branch(), project.projectPath(),
+                        project.owner(), project.repo());
+            } else {
+                return """
+                        ✅ Active project (freshly verified from disk):
+
+                        Owner  : %s
+                        Repo   : %s
+                        Branch : %s
+                        Path   : %s
+
+                        🔗 https://github.com/%s/%s
+                        """.formatted(
+                        project.owner(), project.repo(),
+                        project.branch(), project.projectPath(),
+                        project.owner(), project.repo());
+            }
+        }
+
+        // Aucun .git trouvé — fallback mémoire
         String savedOwner = memoryService.recall("current_owner");
         String savedRepo = memoryService.recall("current_repo");
         String savedBranch = memoryService.recall("current_branch");
+        String savedPath = memoryService.recall("current_path");
 
-        // ── 3. Même projet → retour immédiat ─────────────────────────────────
-        if (savedOwner != null && savedPath != null
-                && currentWorkspace != null
-                && savedPath.equalsIgnoreCase(currentWorkspace)) {
-            return """
-                    ✅ Projet actif (auto-détecté au démarrage) :
-
-                    Owner  : %s
-                    Repo   : %s
-                    Branch : %s
-                    Path   : %s
-
-                    🔗 https://github.com/%s/%s
-                    """.formatted(savedOwner, savedRepo, savedBranch,
-                    savedPath, savedOwner, savedRepo);
-        }
-
-        // ── 4. Workspace changé → rédetection automatique ────────────────────
-        // FIX: Also re-detect when currentWorkspace is null, using all available
-        // strategies (env vars, user.dir) instead of falling back to stale memory
-        String pathToDetect = (currentWorkspace != null && !currentWorkspace.isBlank())
-                ? currentWorkspace
-                : null;
-
-        Optional<GitProjectContext> ctx = (pathToDetect != null)
-                ? projectContextService.detectFromDirectory(pathToDetect)
-                : projectContextService.detectFromCurrentDirectory(); // tries all strategies
-
-        if (ctx.isPresent()) {
-            memoryService.remember("current_owner", ctx.get().owner());
-            memoryService.remember("current_repo", ctx.get().repo());
-            memoryService.remember("current_branch", ctx.get().branch());
-            memoryService.remember("current_path", ctx.get().projectPath());
-
-            return """
-                    🔄 Nouveau projet détecté automatiquement !
-
-                    Owner  : %s
-                    Repo   : %s
-                    Branch : %s
-                    Path   : %s
-
-                    🔗 https://github.com/%s/%s
-                    """.formatted(ctx.get().owner(), ctx.get().repo(),
-                    ctx.get().branch(), ctx.get().projectPath(),
-                    ctx.get().owner(), ctx.get().repo());
-        }
-
-        // ── 5. Aucun projet détecté → fallback sur la mémoire ────────────────
         if (savedOwner != null && savedRepo != null) {
+            boolean pathOk = savedPath != null
+                    && !savedPath.equals("manual")
+                    && Files.isDirectory(Paths.get(savedPath));
+
             return """
-                    ⚠️ Workspace non détecté — projet chargé depuis la mémoire :
+                    ⚠️ No .git directory found in workspace — loaded from memory:
 
                     Owner  : %s
                     Repo   : %s
                     Branch : %s
-                    Path   : %s
+                    Path   : %s  %s
 
                     🔗 https://github.com/%s/%s
-                    """.formatted(savedOwner, savedRepo,
+
+                    💡 Open a folder with .git or set PROJECT_PATH env var to enable auto-detection.
+                    %s
+                    """.formatted(
+                    savedOwner, savedRepo,
                     savedBranch != null ? savedBranch : "main",
                     savedPath != null ? savedPath : "N/A",
-                    savedOwner, savedRepo);
+                    pathOk ? "✅" : "⚠️ (path not accessible — files cannot be saved there)",
+                    savedOwner, savedRepo,
+                    pathOk ? "" : "⚠️ Run `detectProjectFromPath` to fix the save path.");
         }
 
-        // ── 6. Vraiment rien → message d'erreur ──────────────────────────────
         return """
-                ⚠️ Aucun projet actif détecté.
-                Solutions :
-                • Ouvrir un folder contenant un .git dans Antigravity
-                • Ou appeler : setCurrentProject(owner, repo, branch)
+                ⚠️ No active project detected.
+                Solutions:
+                • Set the PROJECT_PATH environment variable to your project folder
+                • Open a folder containing .git in your workspace
+                • Or call: setCurrentProject(owner, repo, branch)
                 """;
     }
 
     @Tool(name = "detectCurrentProject", description = """
-            Détecte automatiquement le projet GitHub actif depuis le workspace antigravity ouvert.
+            Force re-detection of the active GitHub project from the open workspace.
+            Use this after switching projects or branches if auto-detection hasn't fired.
             """)
     public String detectCurrentProject() {
         Optional<GitProjectContext> ctx = projectContextService.detectFromCurrentDirectory();
-
         if (ctx.isEmpty()) {
-            return """
-                    ❌ Aucun projet Git détecté dans le workspace antigravity.
-                    """;
+            return "❌ No Git project found in the current workspace.";
         }
-
-        return saveAndConfirm(ctx.get(), "auto-détecté depuis le workspace antigravity");
+        return saveAndConfirm(ctx.get(), "detected from workspace");
     }
 
     @Tool(name = "detectProjectFromPath", description = """
-            Détecte le projet GitHub depuis un chemin de dossier spécifique fourni par l'utilisateur.
+            Detect the GitHub project from a specific folder path supplied by the user.
+            Use this when the project is not being auto-detected (e.g. PROJECT_PATH not set).
             """)
     public String detectProjectFromPath(
-            @ToolParam(description = "Chemin absolu du dossier projet.") String path) {
+            @ToolParam(description = "Absolute path to the project folder.") String path) {
 
         if (path == null || path.isBlank()) {
-            return "❌ Chemin invalide.";
+            return "❌ Invalid path.";
+        }
+        if (!Files.isDirectory(Paths.get(path))) {
+            return "❌ Path does not exist or is not a directory: " + path;
         }
 
         Optional<GitProjectContext> ctx = projectContextService.detectFromDirectory(path);
-
         if (ctx.isEmpty()) {
-            return "❌ Aucun projet Git trouvé dans : " + path
-                    + "\n   Vérifie que ce dossier contient un sous-dossier .git";
+            return "❌ No Git project found in: " + path
+                    + "\n   Make sure this folder contains a .git subdirectory.";
         }
 
-        return saveAndConfirm(ctx.get(), "détecté depuis le chemin : " + path);
+        return saveAndConfirm(ctx.get(), "detected from path: " + path);
     }
 
-    @Tool(name = "getCurrentProject", description = "Affiche le projet GitHub actuellement actif en mémoire persistante.")
+    @Tool(name = "getCurrentProject", description = "Show the currently active GitHub project from persistent memory.")
     public String getCurrentProject() {
         String owner = memoryService.recall("current_owner");
         String repo = memoryService.recall("current_repo");
@@ -160,32 +192,38 @@ public class ProjectContextTools {
         String path = memoryService.recall("current_path");
 
         if (owner == null || repo == null) {
-            return "⚠️ Aucun projet actif en mémoire.";
+            return "⚠️ No active project in memory.";
         }
 
+        boolean pathOk = path != null
+                && !path.equals("manual")
+                && Files.isDirectory(Paths.get(path));
+
         return """
-                📦 Projet actif :
+                📦 Active project:
 
                 Owner  : %s
                 Repo   : %s
                 Branch : %s
-                Path   : %s
+                Path   : %s  %s
 
                 🔗 URL : https://github.com/%s/%s
-                """.formatted(owner, repo, branch, path, owner, repo);
+                """.formatted(owner, repo, branch, path,
+                pathOk ? "✅" : "⚠️ (path not accessible)",
+                owner, repo);
     }
 
-    @Tool(name = "setCurrentProject", description = "Définit manuellement le projet GitHub actif (owner, repo, branch).")
+    @Tool(name = "setCurrentProject", description = "Manually set the active GitHub project (owner, repo, branch).")
     public String setCurrentProject(
-            @ToolParam(description = "Nom d'utilisateur GitHub du propriétaire") String owner,
-            @ToolParam(description = "Nom du repository GitHub") String repo,
-            @ToolParam(description = "Nom de la branche active") String branch) {
+            @ToolParam(description = "GitHub owner username") String owner,
+            @ToolParam(description = "GitHub repository name") String repo,
+            @ToolParam(description = "Active branch name") String branch) {
 
         if (owner == null || owner.isBlank()) {
-            return "❌ Le paramètre 'owner' est requis.";
+            return "❌ 'owner' is required.";
         }
         if (repo == null || repo.isBlank()) {
-            return "❌ Le paramètre 'repo' est requis.";
+            return "❌ 'repo' is required.";
         }
         if (branch == null || branch.isBlank()) {
             branch = "main";
@@ -194,50 +232,50 @@ public class ProjectContextTools {
         memoryService.remember("current_owner", owner.trim());
         memoryService.remember("current_repo", repo.trim());
         memoryService.remember("current_branch", branch.trim());
-        memoryService.remember("current_path", "manuel");
+        memoryService.remember("current_path", "manual");
 
         return """
-                ✅ Projet défini manuellement !
+                ✅ Project set manually!
 
                 Owner  : %s
                 Repo   : %s
                 Branch : %s
 
+                ⚠️ Path set to 'manual' — run `detectProjectFromPath` if you want
+                   rollo.md to be saved at the correct project root.
+
                 🔗 https://github.com/%s/%s
                 """.formatted(owner, repo, branch, owner, repo);
     }
 
-    @Tool(name = "refreshCurrentBranch", description = "Relit .git/HEAD pour mettre à jour la branche courante en mémoire.")
+    @Tool(name = "refreshCurrentBranch", description = "Re-read .git/HEAD to update the current branch in memory.")
     public String refreshCurrentBranch() {
         String path = memoryService.recall("current_path");
         String owner = memoryService.recall("current_owner");
         String repo = memoryService.recall("current_repo");
 
         if (owner == null || repo == null) {
-            return "⚠️ Aucun projet actif en mémoire.";
+            return "⚠️ No active project in memory.";
         }
-
-        if (path == null || path.equals("manuel")) {
-            return "⚠️ Projet défini manuellement — branche non rafraîchissable automatiquement.";
+        if (path == null || path.equals("manual")) {
+            return "⚠️ Project was set manually — branch cannot be auto-refreshed.";
         }
 
         Optional<GitProjectContext> ctx = projectContextService.detectFromDirectory(path);
         if (ctx.isEmpty()) {
-            return "❌ Impossible de relire le projet depuis : " + path;
+            return "❌ Cannot re-read project from: " + path;
         }
 
         String newBranch = ctx.get().branch();
         String oldBranch = memoryService.recall("current_branch");
         memoryService.remember("current_branch", newBranch);
 
-        if (newBranch.equals(oldBranch)) {
-            return "✅ Branche inchangée : " + newBranch;
-        }
-
-        return "🔄 Branche mise à jour : %s → %s".formatted(oldBranch, newBranch);
+        return Objects.equals(newBranch, oldBranch)
+                ? "✅ Branch unchanged: " + newBranch
+                : "🔄 Branch updated: %s → %s".formatted(oldBranch, newBranch);
     }
 
-    @Tool(name = "clearCurrentProject", description = "Efface le projet actif de la mémoire persistante.")
+    @Tool(name = "clearCurrentProject", description = "Remove the active project from persistent memory.")
     public String clearCurrentProject() {
         String owner = memoryService.recall("current_owner");
         String repo = memoryService.recall("current_repo");
@@ -247,22 +285,32 @@ public class ProjectContextTools {
         memoryService.forget("current_branch");
         memoryService.forget("current_path");
 
-        if (owner == null) {
-            return "ℹ️ Aucun projet actif en mémoire.";
-        }
-
-        return "🗑️ Projet " + owner + "/" + repo + " effacé de la mémoire.";
+        return owner == null
+                ? "ℹ️ No active project in memory."
+                : "🗑️ Project %s/%s removed from memory.".formatted(owner, repo);
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Helper ──────────────────────────────────────────────────────────────
     private String saveAndConfirm(GitProjectContext project, String source) {
+        String savedOwner = memoryService.recall("current_owner");
+        String savedRepo = memoryService.recall("current_repo");
+        String savedBranch = memoryService.recall("current_branch");
+        String savedPath = memoryService.recall("current_path");
+
+        boolean changed = !Objects.equals(project.owner(), savedOwner)
+                || !Objects.equals(project.repo(), savedRepo)
+                || !Objects.equals(project.branch(), savedBranch)
+                || !Objects.equals(project.projectPath(), savedPath);
+
         memoryService.remember("current_owner", project.owner());
         memoryService.remember("current_repo", project.repo());
         memoryService.remember("current_branch", project.branch());
         memoryService.remember("current_path", project.projectPath());
 
+        String status = changed ? "🔄 Project updated / changed" : "✅ Project unchanged";
+
         return """
-                ✅ Projet %s !
+                %s (%s)!
 
                 Owner  : %s
                 Repo   : %s
@@ -270,20 +318,9 @@ public class ProjectContextTools {
                 Path   : %s
 
                 🔗 https://github.com/%s/%s
-                """.formatted(source,
+                """.formatted(status, source,
                 project.owner(), project.repo(),
                 project.branch(), project.projectPath(),
                 project.owner(), project.repo());
-    }
-
-    private String verifyProjectStillExists(String path) {
-        if (path == null || path.isBlank() || path.equals("manuel")) {
-            return "";
-        }
-        File gitDir = new File(path, ".git");
-        if (!gitDir.exists()) {
-            return "⚠️ Dossier local introuvable : " + path + "\n";
-        }
-        return "";
     }
 }

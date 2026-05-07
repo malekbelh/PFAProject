@@ -3,62 +3,56 @@ package com.example.mcp_github.service;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import com.example.mcp_github.model.MemoryEntity;
+
+import com.example.mcp_github.model.MemoryDocument;
 import com.example.mcp_github.repository.MemoryRepository;
 
 /**
- * Service for persistent memory management using MongoDB.
+ * Service de gestion de la mémoire persistante via MongoDB. Remplace l'ancien
+ * stockage local JSON.
  */
 @Service
 public class MemoryService {
 
-    private final MemoryRepository memoryRepository;
+    private static final Logger log = LoggerFactory.getLogger(MemoryService.class);
 
-    public MemoryService(MemoryRepository memoryRepository) {
-        this.memoryRepository = memoryRepository;
+    private final MemoryRepository repository;
+
+    public MemoryService(MemoryRepository repository) {
+        this.repository = repository;
     }
 
-    public void remember(String key, String value) {
-        try {
-            memoryRepository.save(new MemoryEntity(key, value));
-        } catch (Exception e) {
-            throw new RuntimeException("Error saving memory to MongoDB: " + e.getMessage());
-        }
+    public synchronized void remember(String key, String value) {
+        log.debug("Memory: Retaining {} = {}", key, value);
+        repository.save(new MemoryDocument(key, value));
     }
 
-    public String recall(String key) {
-        try {
-            return memoryRepository.findById(key)
-                    .map(MemoryEntity::getValue)
-                    .orElse(null);
-        } catch (Exception e) {
-            throw new RuntimeException("Error reading memory from MongoDB: " + e.getMessage());
-        }
+    public synchronized String recall(String key) {
+        return repository.findById(key)
+                .map(MemoryDocument::getValue)
+                .orElse(null);
     }
 
-    public Map<String, String> recallAll() {
-        try {
-            return memoryRepository.findAll().stream()
-                    .collect(Collectors.toMap(MemoryEntity::getKey, MemoryEntity::getValue));
-        } catch (Exception e) {
-            throw new RuntimeException("Error reading memory from MongoDB: " + e.getMessage());
-        }
+    public synchronized Map<String, String> recallAll() {
+        return repository.findAll().stream()
+                .filter(doc -> doc.getId() != null && doc.getValue() != null)
+                .collect(Collectors.toMap(
+                        MemoryDocument::getId,
+                        MemoryDocument::getValue,
+                        (v1, v2) -> v1
+                ));
     }
 
-    public void forget(String key) {
-        try {
-            memoryRepository.deleteById(key);
-        } catch (Exception e) {
-            throw new RuntimeException("Error deleting memory from MongoDB: " + e.getMessage());
-        }
+    public synchronized void forget(String key) {
+        log.debug("Memory: Forgetting {}", key);
+        repository.deleteById(key);
     }
 
-    public void forgetAll() {
-        try {
-            memoryRepository.deleteAll();
-        } catch (Exception e) {
-            throw new RuntimeException("Error clearing memory in MongoDB: " + e.getMessage());
-        }
+    public synchronized void forgetAll() {
+        log.warn("Memory: Clearing entire project memory in MongoDB");
+        repository.deleteAll();
     }
 }

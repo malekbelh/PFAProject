@@ -1,10 +1,10 @@
 package com.example.mcp_github.repository;
 
 import org.springframework.data.mongodb.repository.MongoRepository;
-import com.example.mcp_github.model.MemoryEntity;
+import com.example.mcp_github.model.MemoryDocument;
 
 /**
- * Repository interface for MemoryEntity.
+ * Repository pour gérer la persistance de la mémoire dans MongoDB.
  */
-public interface MemoryRepository extends MongoRepository<MemoryEntity, String> {
+public interface MemoryRepository extends MongoRepository<MemoryDocument, String> {
 }

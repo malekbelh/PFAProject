@@ -161,19 +161,11 @@ public class GitHubRepositoryTools {
     }
 
     private String formatRepoResult(String header, GitHubRepository r) {
-        return """
-                %s
-
-                Name       : %s
-                Description: %s
-                Visibility : %s
-                URL        : %s
-                """.formatted(
-                header,
-                r.name(),
-                nullOr(r.description(), "No description"),
-                r.isPrivate() ? "🔒 Private" : "🌐 Public",
-                r.htmlUrl());
+        return header + "\n\n"
+                + "Name       : " + r.name() + "\n"
+                + "Description: " + nullOr(r.description(), "No description") + "\n"
+                + "Visibility : " + (r.isPrivate() ? "🔒 Private" : "🌐 Public") + "\n"
+                + "URL        : " + r.htmlUrl() + "\n";
     }
 
     private int resolveLimit(Integer limit) {

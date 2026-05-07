@@ -18,31 +18,26 @@ public class ProjectContextService {
 
     private static final Pattern HTTPS_PATTERN = Pattern
             .compile("url\\s*=\\s*https://github\\.com/([^/]+)/([^\\s\\.]+)");
+    private static final Pattern SSH_PATTERN = Pattern
+            .compile("url\\s*=\\s*git@github\\.com:([^/]+)/([^\\s\\.]+)");
 
-    private static final Pattern SSH_PATTERN = Pattern.compile("url\\s*=\\s*git@github\\.com:([^/]+)/([^\\s\\.]+)");
+    private final WorkspaceResolver workspaceResolver;
 
+    public ProjectContextService(WorkspaceResolver workspaceResolver) {
+        this.workspaceResolver = workspaceResolver;
+    }
+
+    /**
+     * Détecte le projet depuis le workspace actif. L'ordre de priorité
+     * (PROJECT_PATH → VSCODE_WORKSPACE → user.dir) est désormais géré
+     * exclusivement par WorkspaceResolver.
+     */
     public Optional<GitProjectContext> detectFromCurrentDirectory() {
-
-        // ✅ 1. Workspace Antigravity (priorité maximale)
-        String vsCodeWorkspace = System.getenv("VSCODE_WORKSPACE");
-        if (vsCodeWorkspace != null && !vsCodeWorkspace.isBlank()) {
-            Optional<GitProjectContext> result = detectFromDirectory(vsCodeWorkspace);
-            if (result.isPresent()) {
-                return result;
-            }
+        String workspace = workspaceResolver.resolve();
+        if (workspace == null) {
+            return Optional.empty();
         }
-
-        // ✅ 2. Variable d'env manuelle (fallback)
-        String workspacePath = System.getenv("WORKSPACE_PATH");
-        if (workspacePath != null && !workspacePath.isBlank()) {
-            Optional<GitProjectContext> result = detectFromDirectory(workspacePath);
-            if (result.isPresent()) {
-                return result;
-            }
-        }
-
-        // ✅ 3. user.dir (dernier recours)
-        return detectFromDirectory(System.getProperty("user.dir"));
+        return detectFromDirectory(workspace);
     }
 
     public Optional<GitProjectContext> detectFromDirectory(String path) {
@@ -64,7 +59,7 @@ public class ProjectContextService {
             String content = Files.readString(gitConfig.toPath());
             return parseGitConfig(content, path);
         } catch (Exception e) {
-            log.warn("Failed to read git config from {}: {}", gitConfig.getAbsolutePath(), e.getMessage());
+            log.warn("Échec de lecture de git config depuis {} : {}", gitConfig.getAbsolutePath(), e.getMessage());
             return Optional.empty();
         }
     }
@@ -94,9 +89,8 @@ public class ProjectContextService {
                 return "detached@" + content.substring(0, 7);
             }
         } catch (Exception e) {
-            log.debug("Failed to read git HEAD from project {}: {}", projectPath, e.getMessage());
+            log.debug("Échec de lecture de .git/HEAD dans {} : {}", projectPath, e.getMessage());
         }
-
         return "main";
     }
 
