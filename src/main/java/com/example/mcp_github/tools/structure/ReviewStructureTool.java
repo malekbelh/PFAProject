@@ -22,6 +22,9 @@ import com.example.mcp_github.service.ProjectContextService;
 import com.example.mcp_github.service.ProjectContextService.GitProjectContext;
 import com.example.mcp_github.service.ProjectStructureAnalyzer;
 import com.example.mcp_github.service.ProjectStructureAnalyzer.AnalysisResult;
+import com.example.mcp_github.service.RolloDocsBuilder;
+import com.example.mcp_github.service.DocumentationContextBuilder;
+import com.example.mcp_github.model.ProjectFingerprint;
 
 /**
  * ReviewStructureTool — Validation & Refinement Step
@@ -46,6 +49,8 @@ public class ReviewStructureTool {
     private final ProjectContextService projectContextService;
     private final ArchitecturePromptService promptService;
     private final DocumentationWriterService writerService;
+    private final RolloDocsBuilder rolloDocsBuilder;
+    private final DocumentationContextBuilder contextBuilder;
 
     public ReviewStructureTool(
             GitHubFileTreeService gitHubFileTreeService,
@@ -53,13 +58,17 @@ public class ReviewStructureTool {
             MemoryService memoryService,
             ProjectContextService projectContextService,
             ArchitecturePromptService promptService,
-            DocumentationWriterService writerService) {
+            DocumentationWriterService writerService,
+            RolloDocsBuilder rolloDocsBuilder,
+            DocumentationContextBuilder contextBuilder) {
         this.gitHubFileTreeService = gitHubFileTreeService;
         this.analyzer = analyzer;
         this.memoryService = memoryService;
         this.projectContextService = projectContextService;
         this.promptService = promptService;
         this.writerService = writerService;
+        this.rolloDocsBuilder = rolloDocsBuilder;
+        this.contextBuilder = contextBuilder;
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -122,9 +131,10 @@ public class ReviewStructureTool {
             }
 
             AnalysisResult freshAnalysis = analyzer.analyze(snapshot);
+            ProjectFingerprint fingerprint = rolloDocsBuilder.build(target.path(), target.owner(), target.repo(), target.branch(), snapshot, freshAnalysis);
 
             // ── 5. Build the critic prompt ────────────────────────────────────
-            String criticPrompt = buildCriticPrompt(existingDoc, freshAnalysis, snapshot, fileName);
+            String criticPrompt = buildCriticPrompt(existingDoc, fingerprint, snapshot, fileName);
 
             // ── 6. Return prompt to AI for self-critique ──────────────────────
             //
@@ -133,7 +143,7 @@ public class ReviewStructureTool {
             // We surface both the prompt AND the fresh analysis data so the AI
             // has everything it needs to produce its verdict.
             //
-            return buildReviewResponse(criticPrompt, freshAnalysis, snapshot, target, fileName);
+            return buildReviewResponse(criticPrompt, fingerprint, snapshot, target, fileName);
 
         } catch (Exception e) {
             logger.error("reviewProjectStructure a échoué", e);
@@ -211,7 +221,7 @@ public class ReviewStructureTool {
      * Senior Architecture Reviewer whose job is to find flaws — not describe
      * the project again. This avoids the model simply paraphrasing itself.
      */
-    private String buildCriticPrompt(String existingDoc, AnalysisResult fresh,
+    private String buildCriticPrompt(String existingDoc, ProjectFingerprint fingerprint,
             RepositorySnapshot snapshot, String fileName) {
 
         return """
@@ -231,11 +241,7 @@ public class ReviewStructureTool {
                 - Do NOT repeat correct findings — only flag what needs correction.
 
                 ### Fresh Static Analysis (ground truth)
-                - **Pattern detected:** %s
-                - **Confidence:** %d%%
-                - **Matched signals:** %s
-                - **Stack:** Languages=%s | Frameworks=%s | Build=%s
-                - **Total files:** %d
+%s
 
                 ### Original Documentation to Review
                 ---
@@ -252,20 +258,14 @@ public class ReviewStructureTool {
                 always requires refinement.
                 """.formatted(
                 fileName,
-                fresh.pattern().name(),
-                fresh.confidence(),
-                String.join(", ", fresh.matchedSignals()),
-                String.join(", ", fresh.stack().languages()),
-                String.join(", ", fresh.stack().frameworks()),
-                String.join(", ", fresh.stack().buildTools()),
-                snapshot.tree().size(),
+                contextBuilder.buildPromptContext(fingerprint),
                 existingDoc);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
     // REVIEW RESPONSE — what the tool returns to the AI
     // ═══════════════════════════════════════════════════════════════════════════
-    private String buildReviewResponse(String criticPrompt, AnalysisResult fresh,
+    private String buildReviewResponse(String criticPrompt, ProjectFingerprint fingerprint,
             RepositorySnapshot snapshot, ResolvedTarget target, String fileName) {
 
         StringBuilder r = new StringBuilder();
@@ -276,10 +276,10 @@ public class ReviewStructureTool {
         // Surface the delta between original doc signals and fresh analysis
         r.append("**Fresh analysis snapshot:**\n");
         r.append("- Pattern: `%s` · Confidence: `%d%%`\n"
-                .formatted(fresh.pattern().name(), fresh.confidence()));
+                .formatted(fingerprint.primaryPattern().name(), fingerprint.patternConfidence()));
         r.append("- Files scanned: `%d`\n".formatted(snapshot.tree().size()));
-        if (!fresh.matchedSignals().isEmpty()) {
-            r.append("- Signals: %s\n".formatted(String.join(", ", fresh.matchedSignals())));
+        if (!fingerprint.keySignals().isEmpty()) {
+            r.append("- Signals: %s\n".formatted(String.join(", ", fingerprint.keySignals())));
         }
         r.append("\n---\n\n");
 

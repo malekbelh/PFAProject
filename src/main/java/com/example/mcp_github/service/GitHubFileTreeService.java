@@ -52,10 +52,14 @@ public class GitHubFileTreeService {
     private static final int MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10 MB
 
     private final WebClient webClient;
+    private final com.example.mcp_github.service.rollodocs.GitHubResponseCache cache;
 
     public GitHubFileTreeService(
             @Value("${github.api.base-url}") String baseUrl,
-            @Value("${github.api.token:}") String token) {
+            @Value("${github.api.token:}") String token,
+            com.example.mcp_github.service.rollodocs.GitHubResponseCache cache) {
+
+        this.cache = cache;
 
         HttpClient httpClient = HttpClient.create(
                 ConnectionProvider.builder("github")
@@ -162,7 +166,12 @@ public class GitHubFileTreeService {
         return new RepositorySnapshot(owner, repo, branch, tree, keyFiles);
     }
 
-    private String fetchFileContent(String owner, String repo, String branch, String path) {
+    public String fetchFileContent(String owner, String repo, String branch, String path) {
+        String cached = (String) cache.get(owner, repo, path, "content");
+        if (cached != null) {
+            return cached;
+        }
+
         try {
             FileContentResponse response = webClient.get()
                     .uri("/repos/{owner}/{repo}/contents/{path}?ref={branch}",
@@ -176,7 +185,9 @@ public class GitHubFileTreeService {
             }
 
             String cleaned = response.content().replace("\n", "").trim();
-            return new String(Base64.getDecoder().decode(cleaned));
+            String decoded = new String(Base64.getDecoder().decode(cleaned));
+            cache.put(owner, repo, path, "content", decoded);
+            return decoded;
 
         } catch (WebClientResponseException.NotFound e) {
             return null;

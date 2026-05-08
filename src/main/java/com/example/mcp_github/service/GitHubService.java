@@ -35,12 +35,15 @@ public class GitHubService {
 
     private final WebClient webClient;
     private final boolean hasToken;
+    private final com.example.mcp_github.service.rollodocs.GitHubResponseCache cache;
 
     public GitHubService(
             @Value("${github.api.base-url}") String baseUrl,
-            @Value("${github.api.token:}") String token) {
+            @Value("${github.api.token:}") String token,
+            com.example.mcp_github.service.rollodocs.GitHubResponseCache cache) {
 
         this.hasToken = token != null && !token.isEmpty();
+        this.cache = cache;
 
         WebClient.Builder builder = WebClient.builder()
                 .baseUrl(baseUrl)
@@ -123,12 +126,22 @@ public class GitHubService {
     }
 
     public List<GitHubCommit> getRepositoryCommitsByPath(String username, String repo, String path, int limit) {
-        return webClient.get()
+        String cacheType = "commits_" + limit;
+        @SuppressWarnings("unchecked")
+        List<GitHubCommit> cached = (List<GitHubCommit>) cache.get(username, repo, path, cacheType);
+        if (cached != null) {
+            return cached;
+        }
+
+        List<GitHubCommit> result = webClient.get()
                 .uri("/repos/{username}/{repo}/commits?path={path}&per_page={perPage}", username, repo, path, Math.min(limit, 100))
                 .retrieve()
                 .bodyToFlux(GitHubCommit.class)
                 .collectList()
                 .block();
+        
+        cache.put(username, repo, path, cacheType, result);
+        return result;
     }
 
     public GitHubCommit getLastCommit(String username, String repo) {

@@ -7,6 +7,9 @@ import java.util.Map;
 
 import org.springframework.stereotype.Service;
 
+import org.springframework.stereotype.Service;
+
+import com.example.mcp_github.model.ComponentRole;
 import com.example.mcp_github.service.GitHubFileTreeService.RepositorySnapshot;
 import com.example.mcp_github.service.analyzer.PatternDetector;
 import com.example.mcp_github.service.analyzer.StackSignatureRegistry;
@@ -16,10 +19,12 @@ public class ProjectStructureAnalyzer {
 
     private final List<PatternDetector> detectors;
     private final StackSignatureRegistry stackRegistry;
+    private final ComponentRoleResolver roleResolver;
 
-    public ProjectStructureAnalyzer(List<PatternDetector> detectors, StackSignatureRegistry stackRegistry) {
+    public ProjectStructureAnalyzer(List<PatternDetector> detectors, StackSignatureRegistry stackRegistry, ComponentRoleResolver roleResolver) {
         this.detectors = detectors;
         this.stackRegistry = stackRegistry;
+        this.roleResolver = roleResolver;
     }
 
     private static final int CONFIDENCE_THRESHOLD = 70;
@@ -39,7 +44,7 @@ public class ProjectStructureAnalyzer {
         List<String> suggestions = generateSuggestions(best.pattern(), paths, stack);
         
         // IA Enrichment: Infer roles for better LLM context
-        List<ComponentRole> roles = inferComponentRoles(paths);
+        List<ComponentRole> inferredRoles = inferComponentRoles(paths, best.pattern());
 
         return new AnalysisResult(
                 stack,
@@ -50,7 +55,7 @@ public class ProjectStructureAnalyzer {
                 suggestions,
                 best.score() < CONFIDENCE_THRESHOLD,
                 scores,
-                roles);
+                inferredRoles);
     }
 
     private Stack detectStack(List<String> paths, Map<String, String> files) {
@@ -66,29 +71,8 @@ public class ProjectStructureAnalyzer {
                 .toList();
     }
 
-    private List<ComponentRole> inferComponentRoles(List<String> paths) {
-        List<ComponentRole> roles = new ArrayList<>();
-        Map<String, String> patternToRole = Map.of(
-            "controller", "Entry Point / API Routing",
-            "service", "Business Logic / Domain Services",
-            "repository", "Data Access / Persistence",
-            "model", "Domain Entities / Data Models",
-            "dto", "Data Transfer Objects (API Contracts)",
-            "config", "Application Configuration",
-            "util", "Cross-cutting Utilities",
-            "security", "Authentication & Authorization",
-            "exception", "Global Error Handling"
-        );
-
-        patternToRole.forEach((pattern, role) -> {
-            paths.stream()
-                .filter(p -> p.toLowerCase().contains("/" + pattern + "/") || p.toLowerCase().startsWith(pattern + "/"))
-                .map(p -> p.contains("/") ? p.substring(0, p.lastIndexOf('/')) : p)
-                .distinct()
-                .forEach(pkg -> roles.add(new ComponentRole(pkg, role)));
-        });
-
-        return roles.stream().distinct().toList();
+    private List<ComponentRole> inferComponentRoles(List<String> paths, ArchitecturePattern pattern) {
+        return roleResolver.resolveRoles(paths, pattern);
     }
 
     private List<String> extractPackageSummary(List<String> paths) {
@@ -126,8 +110,6 @@ public class ProjectStructureAnalyzer {
     public record Stack(List<String> languages, List<String> frameworks, List<String> buildTools) {}
 
     public record PatternScore(ArchitecturePattern pattern, int score, List<String> matchedSignals) {}
-
-    public record ComponentRole(String path, String role) {}
 
     public record AnalysisResult(
             Stack stack,

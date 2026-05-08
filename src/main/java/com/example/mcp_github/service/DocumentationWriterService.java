@@ -5,15 +5,27 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import com.example.mcp_github.model.ComponentGroup;
+import com.example.mcp_github.model.DocFragment;
+import com.example.mcp_github.model.DocSection;
+
 @Service
 public class DocumentationWriterService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentationWriterService.class);
+
+    private final DocFragmentRenderer fragmentRenderer;
+
+    public DocumentationWriterService(DocFragmentRenderer fragmentRenderer) {
+        this.fragmentRenderer = fragmentRenderer;
+    }
 
     public sealed interface WriteResult permits WriteResult.Success, WriteResult.Skipped, WriteResult.Failed {
 
@@ -119,45 +131,62 @@ public class DocumentationWriterService {
     }
 
     /**
-     * Génère la documentation spécifique par service dans rollo_docs/<service>/
+     * Génère la documentation spécifique par groupe dans rollo_docs/<type>/<groupe>/
      */
-    public WriteResult writeServiceDoc(String projectPath, String serviceName,
-            String description, String diagrams, String technicalData, String logic, String commits, String changes) {
+    public WriteResult writeServiceDoc(String projectPath, String serviceName, Map<DocSection, List<DocFragment>> sections) {
         if (projectPath == null || projectPath.isBlank() || projectPath.equals("manual")) {
             return new WriteResult.Skipped("Chemin inconnu.");
         }
 
         Path root = Paths.get(projectPath);
-        Path serviceDir = root.resolve("rollo_docs").resolve(serviceName);
+        Path groupDir = root.resolve("rollo_docs").resolve(serviceName);
 
         try {
-            Files.createDirectories(serviceDir);
+            Files.createDirectories(groupDir);
             
-            if (description != null) {
-                Files.writeString(serviceDir.resolve("description.md"), description, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            }
-            if (diagrams != null) {
-                Files.writeString(serviceDir.resolve("diagrams.md"), diagrams, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            }
-            if (technicalData != null) {
-                Files.writeString(serviceDir.resolve("technical_data.md"), technicalData, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            }
-            if (logic != null) {
-                Files.writeString(serviceDir.resolve("logic.md"), logic, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            }
-            if (commits != null) {
-                Files.writeString(serviceDir.resolve("commits.md"), commits, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            }
-            if (changes != null) {
-                Files.writeString(serviceDir.resolve("changes.md"), changes, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            }
+            writeSection(groupDir, "README.md", sections.get(DocSection.README));
+            writeSection(groupDir, "01-description.md", sections.get(DocSection.DESCRIPTION));
+            writeSection(groupDir, "02-class-diagram.md", sections.get(DocSection.CLASS_DIAGRAM));
+            writeSection(groupDir, "03-sequence-diagram.md", sections.get(DocSection.SEQUENCE_DIAGRAM));
+            writeSection(groupDir, "04-components.md", sections.get(DocSection.COMPONENTS));
+            writeSection(groupDir, "05-dependencies.md", sections.get(DocSection.DEPENDENCIES));
+            writeSection(groupDir, "06-public-api.md", sections.get(DocSection.PUBLIC_API));
+            writeSection(groupDir, "07-commits.md", sections.get(DocSection.COMMITS));
+            writeSection(groupDir, "08-contributors.md", sections.get(DocSection.CONTRIBUTORS));
+            writeSection(groupDir, "09-meta.md", sections.get(DocSection.META));
 
-            log.info("Documentation service sauvegardée : {}", serviceDir.toAbsolutePath());
-            return new WriteResult.Success(serviceDir, 0);
+            log.info("Documentation service sauvegardée : {}", groupDir.toAbsolutePath());
+            return new WriteResult.Success(groupDir, 0);
 
         } catch (Exception e) {
             log.error("Échec d'écriture du service {} : {}", serviceName, e.getMessage());
             return new WriteResult.Failed("Erreur d'écriture : " + e.getMessage());
+        }
+    }
+
+    private void writeSection(Path dir, String fileName, List<DocFragment> fragments) throws Exception {
+        if (fragments != null && !fragments.isEmpty()) {
+            String content = fragmentRenderer.render(fragments);
+            String footer = "\n\n---\n*Généré par Antigravity MCP. Ne pas éditer manuellement.*";
+            Files.writeString(dir.resolve(fileName), content + footer, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        }
+    }
+
+    public WriteResult writeIndexDoc(String projectPath, List<DocFragment> fragments) {
+        if (projectPath == null || projectPath.isBlank() || projectPath.equals("manual")) {
+            return new WriteResult.Skipped("Chemin inconnu.");
+        }
+
+        Path root = Paths.get(projectPath);
+        Path indexFile = root.resolve("rollo_docs").resolve("INDEX.md");
+
+        try {
+            Files.createDirectories(indexFile.getParent());
+            writeSection(indexFile.getParent(), "INDEX.md", fragments);
+            return new WriteResult.Success(indexFile, 0);
+        } catch (Exception e) {
+            log.error("Échec d'écriture de l'index : {}", e.getMessage());
+            return new WriteResult.Failed("Erreur d'écriture index : " + e.getMessage());
         }
     }
 

@@ -28,6 +28,7 @@ import com.example.mcp_github.service.ProjectStructureAnalyzer.AnalysisResult;
 import com.example.mcp_github.service.ProjectStructureAnalyzer.ArchitecturePattern;
 import com.example.mcp_github.service.ProjectStructureAnalyzer.PatternScore;
 import com.example.mcp_github.service.ProjectStructureAnalyzer.Stack;
+import com.example.mcp_github.service.RolloDocsBuilder;
 
 @Component
 public class ProjectStructureTool {
@@ -41,6 +42,7 @@ public class ProjectStructureTool {
     private final ArchitecturePromptService promptService;
     private final DocumentationWriterService writerService;
     private final com.example.mcp_github.service.GitHubService githubService;
+    private final RolloDocsBuilder rolloDocsBuilder;
 
     private static final Set<String> SOURCE_EXTENSIONS = Set.of(
             ".java", ".kt", ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".cs");
@@ -51,7 +53,8 @@ public class ProjectStructureTool {
             ProjectContextService projectContextService,
             ArchitecturePromptService promptService,
             DocumentationWriterService writerService,
-            com.example.mcp_github.service.GitHubService githubService) {
+            com.example.mcp_github.service.GitHubService githubService,
+            RolloDocsBuilder rolloDocsBuilder) {
         this.gitHubFileTreeService = gitHubFileTreeService;
         this.analyzer = analyzer;
         this.memoryService = memoryService;
@@ -59,6 +62,7 @@ public class ProjectStructureTool {
         this.promptService = promptService;
         this.writerService = writerService;
         this.githubService = githubService;
+        this.rolloDocsBuilder = rolloDocsBuilder;
     }
 
     @Tool(name = "analyzeProjectStructure", description = """
@@ -104,8 +108,12 @@ public class ProjectStructureTool {
 
             AnalysisResult analysis = analyzer.analyze(snapshot);
 
-            // ── 3. Prompt enrichi ─────────────────────────────────────────────
-            String enhancedPrompt = promptService.generateEnhancedPrompt(analysis, userPrompt);
+            // ── 3. Génération des Services (rollo_docs/) & Empreinte ────────────
+            com.example.mcp_github.model.ProjectFingerprint fingerprint = rolloDocsBuilder.build(
+                    target.path(), target.owner(), target.repo(), target.branch(), snapshot, analysis);
+
+            // ── 4. Prompt enrichi ─────────────────────────────────────────────
+            String enhancedPrompt = promptService.generateEnhancedPrompt(fingerprint, userPrompt);
 
             // ── 4. Type de documentation ──────────────────────────────────────
             boolean isDetailed = resolveIsDetailed(detailed, userPrompt);
@@ -122,155 +130,6 @@ public class ProjectStructureTool {
             WriteResult result = writerService.write(
                     target.path(), chatSummary, docBody, isDetailed,
                     target.owner(), target.repo(), target.branch());
-
-            // ── 7.5 Génération des Services (rollo_docs/) ───────────────────
-            try {
-                java.util.Map<String, java.util.List<String>> services = groupFilesByService(snapshot);
-                for (java.util.Map.Entry<String, java.util.List<String>> entry : services.entrySet()) {
-                    String serviceName = entry.getKey();
-                    java.util.List<String> paths = entry.getValue();
-
-                    String fDesc = "# Service: " + serviceName + "\n" +
-                            "Ce service regroupe les composants liés au domaine `" + serviceName.replace("-service", "") + "`.\n\n" +
-                            "**Nombre de composants :** " + paths.size();
-
-                    String controller = null;
-                    String serviceComponent = null;
-                    String repoComponent = null;
-                    for (String p : paths) {
-                        String cn = clsName(p);
-                        if (cn != null) {
-                            if (cn.endsWith("Controller")) controller = cn;
-                            else if (cn.endsWith("Service")) serviceComponent = cn;
-                            else if (cn.endsWith("Repository") || cn.endsWith("Dao")) repoComponent = cn;
-                        }
-                    }
-
-                    String fDiag = "### Diagrammes du Service\n\n#### Diagramme de Séquence\n\n";
-                    fDiag += "Ce diagramme illustre le flux principal de traitement pour ce service.\n\n";
-                    fDiag += "```mermaid\nsequenceDiagram\n";
-                    fDiag += "    participant Client\n";
-                    if (controller != null) fDiag += "    participant C as " + controller + "\n";
-                    if (serviceComponent != null) fDiag += "    participant S as " + serviceComponent + "\n";
-                    if (repoComponent != null) fDiag += "    participant R as " + repoComponent + "\n";
-                    fDiag += "    participant DB as Base de données\n\n";
-                    
-                    if (controller != null) {
-                        fDiag += "    Client->>C: Requête HTTP\n";
-                        if (serviceComponent != null) {
-                            fDiag += "    C->>S: Appel méthode métier\n";
-                            if (repoComponent != null) {
-                                fDiag += "    S->>R: Opération de persistance\n";
-                                fDiag += "    R->>DB: Requête (SQL/NoSQL)\n";
-                                fDiag += "    DB-->>R: Retournées\n";
-                                fDiag += "    R-->>S: Modèle/Entité\n";
-                            }
-                            fDiag += "    S-->>C: DTO (Résultat)\n";
-                        }
-                        fDiag += "    C-->>Client: Réponse HTTP\n";
-                    } else if (serviceComponent != null) {
-                        fDiag += "    Client->>S: Appel interne\n";
-                        if (repoComponent != null) {
-                            fDiag += "    S->>R: Opération persistance\n";
-                            fDiag += "    R->>DB: Requête\n";
-                            fDiag += "    DB-->>R: Données\n";
-                            fDiag += "    R-->>S: Entité\n";
-                        }
-                        fDiag += "    S-->>Client: Retour\n";
-                    } else {
-                        fDiag += "    Client->>Client: Logique interne pure\n";
-                    }
-                    fDiag += "```\n\n#### Architecture des Composants\n\n```mermaid\ngraph TD\n" +
-                            "    subgraph " + escapeMermaid(serviceName) + "\n";
-                    for (String p : paths) {
-                        String cn = clsName(p);
-                        if (cn != null) {
-                            fDiag += "        " + escapeMermaid(cn) + "[\"" + cn + "\"]\n";
-                        }
-                    }
-                    fDiag += "    end\n```";
-
-                    String fTech = "### Données Techniques\n\n" +
-                            "#### Modèles & Entités\n\n";
-                    boolean hasModel = false;
-                    for (String p : paths) {
-                        if (p.toLowerCase().contains("model") || p.toLowerCase().contains("entity")) {
-                            fTech += "- `" + clsName(p) + "`\n";
-                            hasModel = true;
-                        }
-                    }
-                    if (!hasModel) {
-                        fTech += "*Aucun modèle spécifique détecté pour ce service.*\n";
-                    }
-
-                    fTech += "\n#### Autres Composants du Service\n\n";
-                    boolean hasComp = false;
-                    for (String p : paths) {
-                        if (!p.toLowerCase().contains("model") && !p.toLowerCase().contains("entity")) {
-                            fTech += "- `" + clsName(p) + "`\n";
-                            hasComp = true;
-                        }
-                    }
-                    if (!hasComp) {
-                        fTech += "*Aucun composant additionnel.*\n";
-                    }
-
-                    String fLogic = "### Logique & Endpoints\n\n" +
-                            "#### Controllers & Routes\n\n";
-                    for (String p : paths) {
-                        if (p.toLowerCase().contains("controller")) {
-                            fLogic += "- `" + clsName(p) + "`\n";
-                        }
-                    }
-                    fLogic += "\n#### Services & Business Logic\n\n";
-                    for (String p : paths) {
-                        if (p.toLowerCase().contains("service") && !p.toLowerCase().contains("controller")) {
-                            fLogic += "- `" + clsName(p) + "`\n";
-                        }
-                    }
-
-                    StringBuilder fCommitsBuilder = new StringBuilder("### Historique des Commits\n\n");
-                    try {
-                        String representativePath = paths.isEmpty() ? null : paths.stream()
-                                .filter(p -> p.contains("Service") || p.contains("Controller"))
-                                .findFirst()
-                                .orElse(paths.get(0));
-
-                        java.util.List<com.example.mcp_github.model.GitHubCommit> commits = null;
-                        if (representativePath != null) {
-                            commits = githubService.getRepositoryCommitsByPath(target.owner(), target.repo(), representativePath, 15);
-                        }
-
-                        if (commits != null && !commits.isEmpty()) {
-                            for (com.example.mcp_github.model.GitHubCommit c : commits) {
-                                String msg = c.commit().message() != null ? c.commit().message() : "";
-                                String title = msg.split("\n")[0];
-                                String desc = msg.length() > title.length() ? msg.substring(title.length()).trim() : "";
-                                fCommitsBuilder.append("- **Date**: ").append(c.commit().author().date())
-                                    .append("\n  - **Auteur**: ").append(c.commit().author().name())
-                                    .append("\n  - **Message**: ").append(title).append("\n");
-                                if (!desc.isEmpty()) {
-                                    fCommitsBuilder.append("  - **Description**: ").append(desc.replace("\n", " ")).append("\n");
-                                }
-                            }
-                        } else {
-                            fCommitsBuilder.append("*Aucun commit trouvé pour ce service.*\n");
-                        }
-                    } catch (Exception ex) {
-                        fCommitsBuilder.append("*Historique inaccessible via API GitHub.*\n\n");
-                    }
-                    String fCommits = fCommitsBuilder.toString();
-
-                    String fChanges = "### Suivi des Modifications\n\n" +
-                            "| Date | Auteur | Description | Impact |\n" +
-                            "|------|--------|-------------|--------|\n" +
-                            "| " + LocalDate.now() + " | Antigravity | Initial structure generation | Documentation updates |\n";
-
-                    writerService.writeServiceDoc(target.path(), serviceName, fDesc, fDiag, fTech, fLogic, fCommits, fChanges);
-                }
-            } catch (Exception ex) {
-                logger.warn("Erreur auto-generation services rollo_docs", ex);
-            }
 
             // ── 8. Réponse chat : synthèse + confirmation fichier ─────────────
             String fileConfirmation;
@@ -1274,78 +1133,4 @@ public class ProjectStructureTool {
         }
     }
 
-    private java.util.Map<String, java.util.List<String>> groupFilesByService(RepositorySnapshot snapshot) {
-        java.util.Set<String> validServices = new java.util.HashSet<>();
-        
-        // 1. Identification des services : situés dans un dossier service ou terminés par Service
-        for (String path : snapshot.allPaths()) {
-            if (!isSource(path)) {
-                continue;
-            }
-            String name = clsName(path);
-            if (name == null) continue;
-            
-            String lPath = path.toLowerCase();
-            boolean inServiceDir = lPath.contains("/service/") || lPath.contains("/services/");
-            boolean endsWithService = name.endsWith("Service") || name.endsWith("Services");
-            
-            if (inServiceDir || endsWithService) {
-                validServices.add(extractServiceName(name));
-            }
-        }
-        
-        // 2. Groupement des fichiers
-        java.util.Map<String, java.util.List<String>> services = new java.util.TreeMap<>();
-        for (String path : snapshot.allPaths()) {
-            if (!isSource(path)) {
-                continue;
-            }
-
-            String name = clsName(path);
-            if (name == null) {
-                continue;
-            }
-
-            String serviceName = extractServiceName(name);
-            if (validServices.contains(serviceName)) {
-                services.computeIfAbsent(serviceName, k -> new java.util.ArrayList<>()).add(path);
-            } else {
-                // Tentative de rattachement au service le plus proche (ex: GithubCommit -> github-service)
-                String bestMatch = "common-service";
-                int maxLen = 0;
-                String baseName = serviceName.replace("-service", "");
-                for (String vs : validServices) {
-                    if (vs.equals("common-service")) continue;
-                    String vsBase = vs.replace("-service", "");
-                    if (baseName.startsWith(vsBase) && vsBase.length() > maxLen) {
-                        bestMatch = vs;
-                        maxLen = vsBase.length();
-                    }
-                }
-                services.computeIfAbsent(bestMatch, k -> new java.util.ArrayList<>()).add(path);
-            }
-        }
-        return services;
-    }
-
-    private String extractServiceName(String className) {
-        String[] suffixes = {"Controller", "Service", "Repository", "Entity", "Model", "DTO", "Request", "Response", "Mapper", "Impl", "Tools", "Tool"};
-        String name = className;
-        for (String s : suffixes) {
-            if (name.endsWith(s)) {
-                name = name.substring(0, name.length() - s.length());
-                break;
-            }
-        }
-        if (name.isEmpty() || name.length() < 2) {
-            return "common-service";
-        }
-
-        // Fix casing for GitHub to avoid git-hub-service
-        name = name.replace("GitHub", "Github");
-
-        // Convert camelCase to spinal-case
-        String spinal = name.replaceAll("([a-z])([A-Z])", "$1-$2").toLowerCase();
-        return spinal + "-service";
-    }
 }

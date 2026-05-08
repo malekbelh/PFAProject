@@ -1,7 +1,7 @@
 package com.example.mcp_github.service;
 
 import com.example.mcp_github.model.ReferenceArchitectures;
-import com.example.mcp_github.service.ProjectStructureAnalyzer.AnalysisResult;
+import com.example.mcp_github.model.ProjectFingerprint;
 import com.example.mcp_github.service.ProjectStructureAnalyzer.ArchitecturePattern;
 import org.springframework.stereotype.Service;
 
@@ -15,11 +15,16 @@ import java.util.List;
 @Service
 public class ArchitecturePromptService {
 
+    private final DocumentationContextBuilder contextBuilder;
+
+    public ArchitecturePromptService(DocumentationContextBuilder contextBuilder) {
+        this.contextBuilder = contextBuilder;
+    }
+
     /**
-     * Generates an enhanced prompt based on the analysis results.
-     * Uses a specific "shot" strategy depending on the detected stack.
+     * Generates an enhanced prompt based on the architectural fingerprint.
      */
-    public String generateEnhancedPrompt(AnalysisResult analysis, String userPrompt) {
+    public String generateEnhancedPrompt(ProjectFingerprint fingerprint, String userPrompt) {
         StringBuilder sb = new StringBuilder();
         
         // 1. Core Instruction (Zero-shot foundation reflecting Hybrid Architecture)
@@ -30,34 +35,26 @@ public class ArchitecturePromptService {
         }
 
         // 2. Contextual Shots (One-shot / Few-shot)
-        appendContextualShots(sb, analysis);
+        appendContextualShots(sb, fingerprint);
 
         // 3. Current Project Context
-        sb.append("Current Project Context:\n");
-        sb.append("- Languages: ").append(String.join(", ", analysis.stack().languages())).append("\n");
-        sb.append("- Frameworks: ").append(String.join(", ", analysis.stack().frameworks())).append("\n");
-        sb.append("- Detected Pattern: ").append(analysis.pattern()).append(" (Confidence: ").append(analysis.confidence()).append("%)\n");
-        
-        // 4. Semantic Roles (LLM Context Enrichment)
-        if (analysis.inferredRoles() != null && !analysis.inferredRoles().isEmpty()) {
-            sb.append("- Semantic Roles:\n");
-            analysis.inferredRoles().forEach(role -> 
-                sb.append("  * ").append(role.path()).append(" -> ").append(role.role()).append("\n")
-            );
+        if (fingerprint != null) {
+            sb.append(contextBuilder.buildPromptContext(fingerprint));
         }
-        sb.append("\n");
 
-        sb.append("Please perform a deep analysis following the pattern above.");
+        sb.append("\nPlease perform a deep analysis following the pattern above.");
         
         return sb.toString();
     }
 
-    private void appendContextualShots(StringBuilder sb, AnalysisResult analysis) {
+    private void appendContextualShots(StringBuilder sb, ProjectFingerprint fingerprint) {
         sb.append("Reference Architectural Examples:\n");
         
+        if (fingerprint == null) return;
+
         // One-shot based on Stack
-        boolean isJava = analysis.stack().languages().contains("Java");
-        boolean isNode = analysis.stack().languages().contains("JavaScript") || analysis.stack().languages().contains("TypeScript");
+        boolean isJava = fingerprint.stack().languages().contains("Java");
+        boolean isNode = fingerprint.stack().languages().contains("JavaScript") || fingerprint.stack().languages().contains("TypeScript");
 
         if (isJava) {
             sb.append(ReferenceArchitectures.SPRING_BOOT_MVC_SHOT).append("\n");
@@ -66,11 +63,11 @@ public class ArchitecturePromptService {
         }
 
         // Few-shot based on Pattern Confidence
-        if (analysis.pattern() == ArchitecturePattern.CLEAN_ARCHITECTURE || analysis.confidence() < 50) {
+        if (fingerprint.primaryPattern() == ArchitecturePattern.CLEAN_ARCHITECTURE || fingerprint.patternConfidence() < 50) {
             sb.append(ReferenceArchitectures.PATTERN_SHOTS.get("CLEAN")).append("\n");
         }
         
-        if (analysis.pattern() == ArchitecturePattern.HEXAGONAL) {
+        if (fingerprint.primaryPattern() == ArchitecturePattern.HEXAGONAL) {
             sb.append(ReferenceArchitectures.PATTERN_SHOTS.get("HEXAGONAL")).append("\n");
         }
 
