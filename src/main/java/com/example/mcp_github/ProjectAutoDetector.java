@@ -79,12 +79,14 @@ public class ProjectAutoDetector implements ApplicationRunner {
 
             if (remoteUrl == null || remoteUrl.isBlank()) {
                 log.warn("Aucun remote 'origin' trouvé dans {}", workspace);
+                checkAndClearMemoryIfWorkspaceChanged(workspace);
                 return;
             }
 
             String[] parts = parseGitUrl(remoteUrl);
             if (parts == null) {
                 log.warn("URL remote non reconnue : {}", remoteUrl);
+                checkAndClearMemoryIfWorkspaceChanged(workspace);
                 return;
             }
 
@@ -96,6 +98,21 @@ public class ProjectAutoDetector implements ApplicationRunner {
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
+    private void checkAndClearMemoryIfWorkspaceChanged(String workspace) {
+        String savedPath = memoryService.recall("current_path");
+        if (workspace != null && savedPath != null && !savedPath.equals("manual")) {
+            String normWorkspace = java.nio.file.Paths.get(workspace).toAbsolutePath().normalize().toString();
+            String normSaved = java.nio.file.Paths.get(savedPath).toAbsolutePath().normalize().toString();
+            if (!normWorkspace.startsWith(normSaved)) {
+                log.warn("Workspace changed to a non-Git directory: {}. Clearing previous memory.", workspace);
+                memoryService.forget("current_owner");
+                memoryService.forget("current_repo");
+                memoryService.forget("current_branch");
+                memoryService.forget("current_path");
+            }
+        }
+    }
+
     private void save(String owner, String repo, String branch, String path) {
         memoryService.remember("current_owner", owner);
         memoryService.remember("current_repo", repo);

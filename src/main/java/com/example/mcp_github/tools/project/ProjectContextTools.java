@@ -114,6 +114,25 @@ public class ProjectContextTools {
         String savedBranch = memoryService.recall("current_branch");
         String savedPath = memoryService.recall("current_path");
 
+        // Si le workspace fourni est différent de l'ancien chemin sauvegardé,
+        // l'utilisateur a changé de projet vers un dossier sans Git. On efface la mémoire.
+        if (workspacePath != null && !workspacePath.isBlank() && savedPath != null && !savedPath.equals("manual")) {
+            String normWorkspace = Paths.get(workspacePath).toAbsolutePath().normalize().toString();
+            String normSaved = Paths.get(savedPath).toAbsolutePath().normalize().toString();
+            
+            if (!normWorkspace.startsWith(normSaved)) {
+                memoryService.forget("current_owner");
+                memoryService.forget("current_repo");
+                memoryService.forget("current_branch");
+                memoryService.forget("current_path");
+                return """
+                        ⚠️ Workspace changed to a new directory: %s
+                        ❌ No .git directory found here.
+                        🗑️ Previous project memory cleared to prevent context mismatch.
+                        """.formatted(workspacePath);
+            }
+        }
+
         if (savedOwner != null && savedRepo != null) {
             boolean pathOk = savedPath != null
                     && !savedPath.equals("manual")
