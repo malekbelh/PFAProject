@@ -167,7 +167,12 @@ public class DocumentationWriterService {
     private void writeSection(Path dir, String fileName, List<DocFragment> fragments) throws Exception {
         if (fragments != null && !fragments.isEmpty()) {
             String content = fragmentRenderer.render(fragments);
-            String footer = "\n\n---\n*Généré par Antigravity MCP. Ne pas éditer manuellement.*";
+            String serviceName = dir.getFileName().toString();
+            String footer = "\n\n---\n";
+            if ("README.md".equals(fileName)) {
+                footer += "[💬 Discuter avec l'assistant IA sur ce composant](http://localhost:3000/?project_id=PFAProject&service=" + serviceName + ")\n\n";
+            }
+            footer += "*Généré par Antigravity MCP. Ne pas éditer manuellement.*";
             Files.writeString(dir.resolve(fileName), content + footer, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         }
     }
@@ -227,6 +232,8 @@ public class DocumentationWriterService {
             sb.append(docBody.strip());
             sb.append("\n");
         }
+
+        sb.append("\n\n---\n[💬 Discuter avec l'assistant IA sur ce projet](http://localhost:3000/?project_id=PFAProject)\n\n");
 
         return sb.toString();
     }

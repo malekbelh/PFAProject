@@ -1,0 +1,13 @@
+# Composants de l'écosystème
+
+| Nom | Type |
+|---|---|
+| `ServiceContributorService` | Service |
+| `ContributorStats` | Entity |
+| `DetectedService` | Entity |
+| `GitHubCommit` | Entity |
+| `GitHubService` | Service Dépendant |
+| `DetectedService` | Service Dépendant |
+
+---
+*Généré par Antigravity MCP. Ne pas éditer manuellement.*

@@ -1,0 +1,1 @@
+Comme ton interface utilise probablement le fichier rollo_detailled.md pour le context
