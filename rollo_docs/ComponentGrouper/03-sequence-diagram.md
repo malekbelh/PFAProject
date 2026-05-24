@@ -13,4 +13,3 @@ ComponentGrouper-->>Caller: List<ComponentGroup>
  ⓘ *(static-analysis)*
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

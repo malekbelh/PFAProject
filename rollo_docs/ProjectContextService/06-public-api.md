@@ -6,4 +6,3 @@
 | `detectFromDirectory` | `String path` | `Optional<GitProjectContext>` | Non |
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

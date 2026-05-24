@@ -18,4 +18,3 @@ Résumé du service : gère la logique métier pour `ArchitecturePrompt`.
 ---
 [💬 Discuter avec l'assistant IA sur ce composant](http://localhost:3000/?project_id=PFAProject&service=ArchitecturePromptService)
 
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

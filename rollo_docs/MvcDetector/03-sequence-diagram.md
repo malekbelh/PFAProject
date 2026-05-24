@@ -23,4 +23,3 @@ MvcDetector-->>Caller: PatternScore
  ⓘ *(static-analysis)*
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

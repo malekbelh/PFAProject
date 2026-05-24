@@ -10,4 +10,3 @@ class StackSignatureRegistry {
 ```
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

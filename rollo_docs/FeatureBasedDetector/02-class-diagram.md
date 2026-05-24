@@ -9,4 +9,3 @@ class FeatureBasedDetector {
 ```
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

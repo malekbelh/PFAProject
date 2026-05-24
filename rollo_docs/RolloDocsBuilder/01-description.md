@@ -7,4 +7,3 @@
 - **Dépendances** : 3
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

@@ -80,6 +80,13 @@
             <artifactId>spring-boot-starter-data-mongodb</artifactId>
         </dependency>
 
+        <!-- JavaParser — AST parsing (Tree-sitter equivalent for Java/JVM) -->
+        <dependency>
+            <groupId>com.github.javaparser</groupId>
+            <artifactId>javaparser-core</artifactId>
+            <version>3.26.4</version>
+        </dependency>
+
         <!-- Tests -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

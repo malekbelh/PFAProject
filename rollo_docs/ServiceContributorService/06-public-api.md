@@ -6,4 +6,3 @@
 | `fetchCommits` | `DetectedService service, RepositorySnapshot snapshot` | `List<GitHubCommit>` | Non |
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

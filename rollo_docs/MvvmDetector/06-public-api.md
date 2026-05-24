@@ -6,4 +6,3 @@
 | `score` | `List<String> paths` | `PatternScore` | Non |
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

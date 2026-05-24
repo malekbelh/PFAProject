@@ -1,6 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
+import dynamic from 'next/dynamic';
+
+const CodeViewer = dynamic(
+  () => import('./components/CodeViewer'),
+  { ssr: false }
+);
 
 // Icons collection for UI without external dependencies
 const Icons = {
@@ -105,7 +111,7 @@ const renderMarkdown = (text) => {
 };
 
 export default function ChatPage() {
-  const [projectId, setProjectId] = useState('PFAProject');
+  const [projectId, setProjectId] = useState('');
   const [serviceContext, setServiceContext] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -234,6 +240,8 @@ export default function ChatPage() {
   };
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);  // relative path from project root
+  const [showEditor, setShowEditor] = useState(false);
 
   const filterTree = (nodes, query) => {
     if (!query) return nodes;
@@ -265,8 +273,9 @@ export default function ChatPage() {
 
   const filteredTree = filterTree(rolloBaseTree, searchQuery);
 
-  const Folder = ({ node }) => {
+  const Folder = ({ node, parentPath = '' }) => {
     const [isOpen, setIsOpen] = useState(node.open || false);
+    const nodePath = parentPath ? `${parentPath}/${node.name}` : node.name;
     
     // Auto-open if searching
     useEffect(() => {
@@ -274,37 +283,56 @@ export default function ChatPage() {
     }, [searchQuery]);
 
     return (
-      <div className="pl-3 py-1">
+      <div className="pl-3 py-0.5">
         <div 
           onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 hover:text-purple-600 dark:hover:text-purple-400 cursor-pointer transition-colors select-none"
+          className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 hover:text-purple-600 dark:hover:text-purple-400 cursor-pointer transition-colors select-none rounded-md px-1 py-1 hover:bg-slate-100 dark:hover:bg-slate-800/50"
         >
           <Icons.Folder />
           <span className="truncate">{node.name}</span>
         </div>
         {node.children && isOpen && (
-          <div className="border-l border-slate-200 dark:border-slate-700 ml-2 mt-1">
-            {renderTree(node.children)}
+          <div className="border-l border-slate-200 dark:border-slate-700 ml-2 mt-0.5">
+            {renderTree(node.children, nodePath)}
           </div>
         )}
       </div>
     );
   };
 
-  const renderTree = (nodes) => {
+  const renderTree = (nodes, parentPath = '') => {
     if (!nodes) return null;
     return nodes.map((node, i) => {
+      const nodePath = parentPath ? `${parentPath}/${node.name}` : node.name;
       if (node.type === 'folder') {
-        return <Folder key={i} node={node} />;
+        return <Folder key={i} node={node} parentPath={parentPath} />;
       }
+      const isSelected = selectedFile === nodePath;
       return (
-        <div key={i} className="pl-3 py-1">
-          <div 
-            onClick={() => handleSuggestion(`Explique le fichier ${node.name}`)}
-            className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 hover:text-purple-600 dark:hover:text-purple-400 cursor-pointer transition-colors select-none"
+        <div key={i} className="pl-3 py-0.5">
+          <div
+            className={`flex items-center gap-2 text-sm rounded-md px-1 py-1 cursor-pointer transition-colors select-none group ${
+              isSelected
+                ? 'bg-purple-600/20 text-purple-400'
+                : 'text-slate-600 dark:text-slate-300 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-slate-100 dark:hover:bg-slate-800/50'
+            }`}
           >
-            <Icons.File />
-            <span className="truncate">{node.name}</span>
+            {/* Click icon/name → open in Monaco */}
+            <span
+              className="flex items-center gap-2 flex-1 min-w-0"
+              onClick={() => { setSelectedFile(nodePath); setShowEditor(true); }}
+            >
+              <Icons.File />
+              <span className="truncate">{node.name}</span>
+            </span>
+            {/* Ask AI button on hover */}
+            <button
+              title="Demander à l'IA"
+              onClick={(e) => { e.stopPropagation(); handleSuggestion(`Explique le fichier ${node.name}`); }}
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-purple-500 flex-shrink-0"
+            >
+              <Icons.Sparkles />
+            </button>
           </div>
         </div>
       );
@@ -313,7 +341,6 @@ export default function ChatPage() {
 
   return (
     <div className="h-screen flex bg-slate-50 dark:bg-[#0b1120] text-slate-900 dark:text-slate-100 font-sans overflow-hidden transition-colors duration-300">
-      
       {/* Sidebar - Explorateur Latéral */}
       <div className="w-72 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0f172a] hidden md:flex flex-col shadow-sm z-10">
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
@@ -350,14 +377,16 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col relative h-full bg-slate-50 dark:bg-transparent">
+      {/* Main Chat Area + Monaco Panel wrapper */}
+      <div className="flex-1 flex h-full overflow-hidden">
+
+      {/* Chat Column */}
+      <div className={`flex flex-col relative h-full bg-slate-50 dark:bg-transparent transition-all duration-300 ${showEditor ? 'w-1/2' : 'flex-1'}`}>
         {/* Header */}
         <header className="h-16 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-[#0f172a]/80 backdrop-blur-md flex items-center justify-between px-6 sticky top-0 z-20">
           <div className="flex items-center gap-3">
             <h1 className="font-semibold text-lg">Chat Contextuel</h1>
-            {serviceContext ? (
-              <div className="flex items-center gap-3">
+            {serviceContext ? (              <div className="flex items-center gap-3">
                 <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 text-xs font-medium border border-purple-200 dark:border-purple-800/50">
                   <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
                   👉 Contexte : {serviceContext}
@@ -378,12 +407,31 @@ export default function ChatPage() {
               </span>
             )}
           </div>
-          <button 
-            onClick={toggleTheme}
-            className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors"
-          >
-            {theme === 'dark' ? <Icons.Sun /> : <Icons.Moon />}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Editor toggle button */}
+            <button
+              onClick={() => setShowEditor(v => !v)}
+              title={showEditor ? "Fermer l'éditeur" : "Ouvrir l'éditeur de code"}
+              className={`p-2 rounded-full transition-colors ${
+                showEditor
+                  ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
+                  : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              {/* Code icon */}
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round"
+                  d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+              </svg>
+            </button>
+            <button 
+              onClick={toggleTheme}
+              className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors"
+            >
+              {theme === 'dark' ? <Icons.Sun /> : <Icons.Moon />}
+            </button>
+          </div>
         </header>
 
         {/* Messages */}
@@ -487,7 +535,21 @@ export default function ChatPage() {
           </div>
         </div>
 
-      </div>
+      </div> {/* end Chat Column */}
+
+      {/* Monaco Editor Panel + Tree-sitter SymbolPanel */}
+      {showEditor && (
+        <div className="w-1/2 h-full flex-shrink-0">
+          <CodeViewer
+            filePath={selectedFile}
+            theme={theme}
+            onClose={() => { setShowEditor(false); setSelectedFile(null); }}
+            onAskAI={(text) => handleSuggestion(text)}
+          />
+        </div>
+      )}
+
+      </div> {/* end Main Chat Area + Monaco Panel wrapper */}
     </div>
   );
 }

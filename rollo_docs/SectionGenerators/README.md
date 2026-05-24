@@ -18,4 +18,3 @@ Résumé du service : gère la logique métier pour `SectionGenerators`.
 ---
 [💬 Discuter avec l'assistant IA sur ce composant](http://localhost:3000/?project_id=PFAProject&service=SectionGenerators)
 
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

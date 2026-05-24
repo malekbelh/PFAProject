@@ -18,4 +18,3 @@ Résumé du service : gère la logique métier pour `DocFragmentRenderer`.
 ---
 [💬 Discuter avec l'assistant IA sur ce composant](http://localhost:3000/?project_id=PFAProject&service=DocFragmentRenderer)
 
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

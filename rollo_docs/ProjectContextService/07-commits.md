@@ -9,4 +9,3 @@
 - **2026-02-20T10:47:18Z** : update project structure and services (malekbhh)
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

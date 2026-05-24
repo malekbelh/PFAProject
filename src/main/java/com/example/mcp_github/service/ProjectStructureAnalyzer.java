@@ -7,8 +7,6 @@ import java.util.Map;
 
 import org.springframework.stereotype.Service;
 
-import org.springframework.stereotype.Service;
-
 import com.example.mcp_github.model.ComponentRole;
 import com.example.mcp_github.service.GitHubFileTreeService.RepositorySnapshot;
 import com.example.mcp_github.service.analyzer.PatternDetector;
@@ -20,11 +18,17 @@ public class ProjectStructureAnalyzer {
     private final List<PatternDetector> detectors;
     private final StackSignatureRegistry stackRegistry;
     private final ComponentRoleResolver roleResolver;
+    private final TreeSitterAnalyzer treeSitterAnalyzer;
 
-    public ProjectStructureAnalyzer(List<PatternDetector> detectors, StackSignatureRegistry stackRegistry, ComponentRoleResolver roleResolver) {
+    public ProjectStructureAnalyzer(
+            List<PatternDetector> detectors,
+            StackSignatureRegistry stackRegistry,
+            ComponentRoleResolver roleResolver,
+            TreeSitterAnalyzer treeSitterAnalyzer) {
         this.detectors = detectors;
         this.stackRegistry = stackRegistry;
         this.roleResolver = roleResolver;
+        this.treeSitterAnalyzer = treeSitterAnalyzer;
     }
 
     private static final int CONFIDENCE_THRESHOLD = 70;
@@ -35,27 +39,72 @@ public class ProjectStructureAnalyzer {
 
         Stack stack = detectStack(paths, files);
         List<PatternScore> scores = scorePatterns(paths);
-        
+
         PatternScore best = scores.stream()
                 .max((a, b) -> Integer.compare(a.score(), b.score()))
                 .orElse(new PatternScore(ArchitecturePattern.UNKNOWN, 0, List.of()));
 
         List<String> packageSummary = extractPackageSummary(paths);
         List<String> suggestions = generateSuggestions(best.pattern(), paths, stack);
-        
-        // IA Enrichment: Infer roles for better LLM context
+
+        // ── Inférence des rôles (heuristique sur les chemins) ─────────────────
         List<ComponentRole> inferredRoles = inferComponentRoles(paths, best.pattern());
+
+        // ── Enrichissement AST (Tree-sitter) — analyse du contenu réel ───────
+        var astSummaries = treeSitterAnalyzer.analyzeFiles(files);
+        List<String> astSignals = treeSitterAnalyzer.extractArchitecturalSignals(astSummaries);
+
+        // Fusionner les signaux AST avec les signaux heuristiques
+        List<String> allSignals = new ArrayList<>(best.matchedSignals());
+        for (String astSignal : astSignals) {
+            if (!allSignals.contains(astSignal)) {
+                allSignals.add(astSignal);
+            }
+        }
+
+        // Bonus de confiance si l'AST confirme le pattern détecté
+        int astConfidenceBonus = computeAstConfidenceBonus(best.pattern(), astSignals);
+        int finalConfidence = Math.min(best.score() + astConfidenceBonus, 100);
 
         return new AnalysisResult(
                 stack,
                 best.pattern(),
-                best.score(),
-                best.matchedSignals(),
+                finalConfidence,
+                allSignals,
                 packageSummary,
                 suggestions,
-                best.score() < CONFIDENCE_THRESHOLD,
+                finalConfidence < CONFIDENCE_THRESHOLD,
                 scores,
-                inferredRoles);
+                inferredRoles,
+                astSummaries.isEmpty() ? null : treeSitterAnalyzer.buildAstReport(astSummaries));
+    }
+
+    /**
+     * Calcule un bonus de confiance basé sur les signaux AST.
+     * Si l'AST confirme des annotations cohérentes avec le pattern détecté,
+     * on augmente la confiance de 5 à 15 points.
+     */
+    private int computeAstConfidenceBonus(ArchitecturePattern pattern, List<String> astSignals) {
+        if (astSignals.isEmpty()) return 0;
+        int bonus = 0;
+        for (String signal : astSignals) {
+            switch (pattern) {
+                case MVC -> {
+                    if (signal.contains("@RestController") || signal.contains("@Controller")) bonus += 5;
+                    if (signal.contains("@Service"))    bonus += 3;
+                    if (signal.contains("@Repository")) bonus += 3;
+                }
+                case CLEAN_ARCHITECTURE, HEXAGONAL -> {
+                    if (signal.contains("@Service"))    bonus += 4;
+                    if (signal.contains("@Repository")) bonus += 4;
+                    if (signal.contains("Spring Data")) bonus += 5;
+                }
+                default -> {
+                    if (signal.contains("Spring AI") || signal.contains("@Tool")) bonus += 5;
+                }
+            }
+        }
+        return Math.min(bonus, 15);
     }
 
     private Stack detectStack(List<String> paths, Map<String, String> files) {
@@ -120,6 +169,8 @@ public class ProjectStructureAnalyzer {
             List<String> suggestions,
             boolean needsLlmFallback,
             List<PatternScore> allScores,
-            List<ComponentRole> inferredRoles) {
+            List<ComponentRole> inferredRoles,
+            /** Rapport AST généré par TreeSitterAnalyzer — null si aucun fichier analysable */
+            String astReport) {
     }
 }

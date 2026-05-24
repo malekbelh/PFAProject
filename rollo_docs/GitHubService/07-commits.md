@@ -10,4 +10,3 @@
 - **2026-02-13T09:51:40Z** : Add GitHub tools (malekbhh)
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

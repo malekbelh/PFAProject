@@ -6,4 +6,3 @@
 | `buildPromptContext` | `ProjectFingerprint fingerprint` | `String` | Non |
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

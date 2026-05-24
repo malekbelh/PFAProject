@@ -36,4 +36,3 @@
 | `mergePullRequest` | `String username, String repo, int prNumber, String commitMessage` | `void` | Non |
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

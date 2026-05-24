@@ -18,4 +18,3 @@ Résumé du service : gère la logique métier pour `WorkspaceResolver`.
 ---
 [💬 Discuter avec l'assistant IA sur ce composant](http://localhost:3000/?project_id=PFAProject&service=WorkspaceResolver)
 
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

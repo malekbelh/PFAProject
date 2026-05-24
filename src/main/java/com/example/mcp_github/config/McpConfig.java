@@ -6,9 +6,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import com.example.mcp_github.tools.actions.GitHubActionsTools;
+import com.example.mcp_github.tools.ast.AstAnalysisTool;
 import com.example.mcp_github.tools.branch.GitHubBranchTools;
 import com.example.mcp_github.tools.commit.GitHubCommitTools;
 import com.example.mcp_github.tools.file.GitHubFileTools;
+import com.example.mcp_github.tools.filesystem.FileSystemTools;
 import com.example.mcp_github.tools.issue.GitHubIssueTools;
 import com.example.mcp_github.tools.project.ProjectContextTools;
 import com.example.mcp_github.tools.pullrequest.GitHubPullRequestTools;
@@ -36,7 +38,10 @@ public class McpConfig {
             GitHubSocialTools socialTools,
             ProjectStructureTool structureTool,
             ReviewStructureTool reviewStructureTool,
-            GitHubUserTools userTools) {
+            GitHubUserTools userTools,
+            // ── Nouveaux outils ──────────────────────────────────────────────
+            AstAnalysisTool astAnalysisTool,
+            FileSystemTools fileSystemTools) {
         return MethodToolCallbackProvider.builder()
                 .toolObjects(
                         actionsTools,
@@ -51,7 +56,11 @@ public class McpConfig {
                         socialTools,
                         structureTool,
                         reviewStructureTool,
-                        userTools)
+                        userTools,
+                        // ── Tree-sitter AST analysis ─────────────────────────
+                        astAnalysisTool,
+                        // ── MCP Filesystem server ────────────────────────────
+                        fileSystemTools)
                 .build();
     }
 }

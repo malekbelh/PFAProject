@@ -1,5 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import dns from 'dns';
+
+// Force l'utilisation d'IPv4 en premier pour résoudre les bugs de DNS/IPv6 de Node.js sur Windows
+dns.setDefaultResultOrder('ipv4first');
 
 export async function POST(req) {
   try {
@@ -29,7 +33,7 @@ export async function POST(req) {
         const targetComponents = new Set();
         if (service) {
           targetComponents.add(service);
-        } else if (projectId && projectId !== 'PFAProject' && projectId !== 'root') {
+        } else if (projectId && projectId !== 'root') {
           // Fallback if projectId was misused as a service name in older versions
           targetComponents.add(projectId);
         }

@@ -13,4 +13,3 @@ RolloDocsIndexGenerator-->>Caller: List<DocFragment>
  ⓘ *(static-analysis)*
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

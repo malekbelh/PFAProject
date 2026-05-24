@@ -8,4 +8,3 @@
 - **2026-03-26T19:56:18Z** : added analyzing architecture feature (yosr26)
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

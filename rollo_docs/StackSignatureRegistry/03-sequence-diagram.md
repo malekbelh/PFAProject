@@ -33,4 +33,3 @@ StackSignatureRegistry-->>Caller: List<String>
  ⓘ *(static-analysis)*
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

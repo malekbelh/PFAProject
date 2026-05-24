@@ -172,7 +172,7 @@ public class DocumentationWriterService {
             if ("README.md".equals(fileName)) {
                 footer += "[💬 Discuter avec l'assistant IA sur ce composant](http://localhost:3000/?project_id=PFAProject&service=" + serviceName + ")\n\n";
             }
-            footer += "*Généré par Antigravity MCP. Ne pas éditer manuellement.*";
+
             Files.writeString(dir.resolve(fileName), content + footer, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         }
     }

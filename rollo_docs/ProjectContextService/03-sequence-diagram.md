@@ -23,4 +23,3 @@ ProjectContextService-->>Caller: Optional<GitProjectContext>
  ⓘ *(static-analysis)*
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*

@@ -4,7 +4,6 @@ Voici l'index de tous les services détectés.
 
 | Service | Raison Détection | Package | Écosystème | Lien |
 |---------|------------------|---------|------------|------|
-| `ProjectAutoDetector` | `ANNOTATION_SERVICE` | `com.example.mcp_github` | 3 classes liées | [Détails](ProjectAutoDetector/README.md) |
 | `DetectedService` | `SUFFIX_SERVICE` | `com.example.mcp_github.model` | 3 classes liées | [Détails](DetectedService/README.md) |
 | `ServiceEcosystem` | `PREFIX_SERVICE` | `com.example.mcp_github.model` | 2 classes liées | [Détails](ServiceEcosystem/README.md) |
 | `ArchitecturePromptService` | `FOLDER_SERVICE` | `com.example.mcp_github.service` | 2 classes liées | [Détails](ArchitecturePromptService/README.md) |
@@ -39,4 +38,3 @@ Voici l'index de tous les services détectés.
 | `SectionGenerators` | `FOLDER_SERVICE` | `com.example.mcp_github.service.rollodocs.generators` | 9 classes liées | [Détails](SectionGenerators/README.md) |
 
 ---
-*Généré par Antigravity MCP. Ne pas éditer manuellement.*
